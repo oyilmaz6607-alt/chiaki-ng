@@ -1,6 +1,5 @@
 # AltyazıTR Oyun — Google TV / Android derlemesi
-# GitHub'a push edince otomatik çalışır; Actions > bu workflow > "Run workflow" ile elle de başlatılabilir.
-# Çıktılar: imzalı .aab (Play Store'a yüklenecek) ve .apk (TV'ye doğrudan kurup denemek için).
+# Actions > Android (AltyazıTR) > "Run workflow" ile elle de başlatılabilir.
 name: Android (AltyazıTR)
 
 on:
@@ -14,31 +13,36 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
           fetch-depth: 1
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Python ve protobuf (nanopb için)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-pip ninja-build
-          pip3 install --user 'protobuf>=5,<6' --break-system-packages
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: Android NDK ve CMake
+      - uses: android-actions/setup-android@v3
+
+      - name: Araçlar
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "ndk;28.2.13676358" "cmake;3.22.1" "platforms;android-35" "build-tools;35.0.0"
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/logs"
+          {
+            pip install 'protobuf>=5,<6'
+            sudo apt-get update && sudo apt-get install -y ninja-build
+            yes | sdkmanager --licenses > /dev/null || true
+            sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "platforms;android-35" "build-tools;35.0.0"
+          } 2>&1 | tee "$RUNNER_TEMP/logs/tools.log"
 
       - name: İmza anahtarını hazırla
         if: env.HAS_KEYSTORE == 'true'
@@ -50,7 +54,6 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
           {
-            echo "sdk.dir=$ANDROID_HOME"
             echo "chiakiKeystore=$RUNNER_TEMP/upload.jks"
             echo "chiakiKeystorePW=$KEYSTORE_PASSWORD"
             echo "chiakiKeyAlias=$KEY_ALIAS"
@@ -60,13 +63,27 @@ jobs:
       - name: Uygulamayı derle
         working-directory: android
         run: |
+          set -o pipefail
           chmod +x gradlew
           if [ "$HAS_KEYSTORE" = "true" ]; then
-            ./gradlew --no-daemon testDebugUnitTest assembleDebug bundleRelease assembleRelease
+            TASKS="testDebugUnitTest assembleDebug bundleRelease assembleRelease"
           else
             # İmza anahtarı yoksa: TV'de denemek için doğrudan kurulabilen test APK'sı
-            ./gradlew --no-daemon testDebugUnitTest assembleDebug
+            TASKS="testDebugUnitTest assembleDebug"
           fi
+          ./gradlew --no-daemon $TASKS 2>&1 | tee "$RUNNER_TEMP/logs/gradle.log"
+
+      # Hata olursa: günlüğün önemli satırlarını hata notu olarak ekler (Actions sayfasında görünür)
+      - name: Hata özeti
+        if: failure()
+        run: |
+          for f in "$RUNNER_TEMP"/logs/*.log; do
+            [ -f "$f" ] || continue
+            name=$(basename "$f")
+            body=$( (grep -n -i -E "error|failed|what went wrong|exception|not found|cannot" "$f" | tail -n 25; echo '--- son satırlar ---'; tail -n 25 "$f") | cut -c1-300 )
+            body="${body//'%'/'%25'}"; body="${body//$'\n'/'%0A'}"; body="${body//$'\r'/}"
+            echo "::error title=$name::$body"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
