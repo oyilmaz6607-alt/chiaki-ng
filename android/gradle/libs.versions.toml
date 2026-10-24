@@ -17,6 +17,7 @@ material = "1.12.0"
 oboe = "1.10.0"
 mlkit-text-recognition = "16.0.1"
 mlkit-translate = "17.0.3"
+zxing-core = "3.5.3"
 
 [libraries]
 activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "activity" }
@@ -44,6 +45,8 @@ oboe = { module = "com.google.oboe:oboe", version.ref = "oboe" }
 mlkit-text-recognition = { module = "com.google.mlkit:text-recognition", version.ref = "mlkit-text-recognition" }
 mlkit-translate = { module = "com.google.mlkit:translate", version.ref = "mlkit-translate" }
 coroutines-play-services = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "coroutines" }
+
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing-core" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -9,6 +9,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.ImageFormat
@@ -41,6 +42,7 @@ import com.metallic.chiaki.BuildConfig
 import com.metallic.chiaki.R
 import com.metallic.chiaki.common.LogManager
 import com.metallic.chiaki.common.Preferences
+import com.metallic.chiaki.companion.CompanionServer
 import com.metallic.chiaki.lib.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.tasks.await
@@ -86,6 +88,10 @@ class CaptionService : Service()
 		private const val BAND_MARGIN_DP = 48
 		private const val MAX_LINES = 3
 		private const val MIN_SHRINK = 0.6f
+		private const val RESTYLE_DEBOUNCE_MS = 120L
+		private const val PREVIEW_MS = 4000L
+		/** Örnek cümlenin "cover" modunda yerleşeceği varsayılan kutu (karenin alt bölümü). */
+		private val PREVIEW_BOX = SubtitleCandidate("", 0.2f, 0.82f, 0.8f, 0.9f)
 
 		@Volatile var isRunning = false
 			private set
@@ -143,7 +149,9 @@ class CaptionService : Service()
 
 	// ---- kare iş parçacığında kullanılanlar
 	private val detector = FrameChangeDetector()
-	private lateinit var scheduler: OcrScheduler
+	/** Ayar değişince ana iş parçacığında yenisiyle değiştirilir (bkz. applyScanSettings). */
+	@Volatile private lateinit var scheduler: OcrScheduler
+	private var schedulerIntervalMs = -1L
 	private val ocrBusy = AtomicBoolean(false)
 	@Volatile private var processingEnabled = false
 	@Volatile private var captureFraction = 0.35f
@@ -183,6 +191,27 @@ class CaptionService : Service()
 
 	private lateinit var prefs: Preferences
 
+	// ---- telefon kumandası / ayarlar ekranı: görünüm değişince canlı uygula (ana iş parçacığı)
+	private var styleKeys: Set<String> = emptySet()
+	private var scanKeys: Set<String> = emptySet()
+	private var prefsListenerRegistered = false
+	private var companionHeld = false
+	/** Ekranda gerçek altyazı yokken stil değişince kısa süre örnek cümle gösterilir. */
+	private var previewing = false
+	private var previewJob: Job? = null
+	private var restyleJob: Job? = null
+	// SharedPreferences dinleyicileri zayıf referansla tutar; alan olarak saklanmalı.
+	private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+		if(key == null || key in styleKeys)
+		{
+			// Telefondaki kaydırıcılar art arda yazabilir: kısa gecikmeyle tek seferde uygula.
+			restyleJob?.cancel()
+			restyleJob = scope.launch { delay(RESTYLE_DEBOUNCE_MS); restyle() }
+		}
+		if(key == null || key in scanKeys)
+			applyScanSettings()
+	}
+
 	override fun onBind(intent: Intent?): IBinder? = null
 
 	override fun onCreate()
@@ -216,11 +245,18 @@ class CaptionService : Service()
 		// Ayar (150..1500 ms, varsayılan 300) artık sabit bekleme değil: iki OCR arasındaki en kısa boşluk
 		// ve hiçbir değişiklik yokken yapılan yedek OCR sıklığı bundan türetilir.
 		val interval = prefs.subtitleIntervalMs.toLong()
+		schedulerIntervalMs = interval
 		scheduler = OcrScheduler(detector, fallbackMs = max(1000L, interval * 3), minGapMs = interval / 3)
 		addOverlays()
 		status(getString(R.string.caption_status_connecting))
 		startSession(connectInfo)
 		loopJob = scope.launch { captionLoop() }
+		registerPrefsListener()
+		if(!companionHeld)
+		{
+			companionHeld = true
+			CompanionServer.acquire(this, CompanionServer.HOLDER_CAPTION)
+		}
 		return START_NOT_STICKY
 	}
 
@@ -228,6 +264,16 @@ class CaptionService : Service()
 	{
 		isRunning = false
 		processingEnabled = false
+		if(prefsListenerRegistered)
+		{
+			prefs.sharedPreferences.unregisterOnSharedPreferenceChangeListener(prefsListener)
+			prefsListenerRegistered = false
+		}
+		if(companionHeld)
+		{
+			companionHeld = false
+			CompanionServer.release(CompanionServer.HOLDER_CAPTION)
+		}
 		loopJob?.cancel()
 		scope.cancel()
 		session?.let {
@@ -255,6 +301,75 @@ class CaptionService : Service()
 		translator.close()
 		removeOverlays()
 		super.onDestroy()
+	}
+
+	// ---------------------------------------------------------------- canlı ayar değişiklikleri
+
+	private fun registerPrefsListener()
+	{
+		if(prefsListenerRegistered)
+			return
+		styleKeys = prefs.subtitleCaptionStyleKeys
+		scanKeys = setOf(getString(R.string.preferences_subtitle_area_key), getString(R.string.preferences_subtitle_speed_key))
+		prefs.sharedPreferences.registerOnSharedPreferenceChangeListener(prefsListener)
+		prefsListenerRegistered = true
+	}
+
+	/** Taranan alan ve tarama aralığı: sonraki karelerde geçerli olur (kare iş parçacığı volatile alanları okur). */
+	private fun applyScanSettings()
+	{
+		captureFraction = (prefs.subtitleCapturePercent / 100f).coerceIn(0.1f, 1f)
+		val interval = prefs.subtitleIntervalMs.toLong()
+		if(interval != schedulerIntervalMs)
+		{
+			schedulerIntervalMs = interval
+			scheduler = OcrScheduler(detector, fallbackMs = max(1000L, interval * 3), minGapMs = interval / 3)
+		}
+	}
+
+	/** Ana iş parçacığı: görünüm ayarlarını yeniden yükleyip ekrandaki altyazıya uygular. */
+	private fun restyle()
+	{
+		val v = captionView ?: return
+		val style = CaptionStyle.load(this)
+		captionPosition = style.position
+		bandMaxWidthFraction = style.maxWidthFraction
+		style.applyTo(v)
+		baseTextPx = v.textSize
+		val last = placedBox
+		// placeCaption aynı kutuyu atlar; yeni görünümle yeniden ölçülsün.
+		placedBox = null
+		if(v.visibility == View.VISIBLE && !previewing)
+		{
+			// Gerçek altyazı ekranda: yalnızca yeniden yerleştir.
+			if(last != null)
+				placeCaption(last)
+			return
+		}
+		// Ekranda altyazı yok: yeni görünüm birkaç saniye örnek cümleyle gösterilir.
+		previewing = true
+		v.text = getString(R.string.caption_preview_sample)
+		v.visibility = View.VISIBLE
+		placeCaption(last ?: PREVIEW_BOX)
+		previewJob?.cancel()
+		previewJob = scope.launch {
+			delay(PREVIEW_MS)
+			if(previewing)
+			{
+				previewing = false
+				placedBox = null
+				captionView?.visibility = View.GONE
+			}
+		}
+	}
+
+	private fun endPreview()
+	{
+		if(!previewing)
+			return
+		previewing = false
+		previewJob?.cancel()
+		previewJob = null
 	}
 
 	// ---------------------------------------------------------------- oturum
@@ -467,7 +582,15 @@ class CaptionService : Service()
 		val box = shownBox
 		val regionChanged = shownSig == null || box == null ||
 				detector.changedFraction(job.signature, shownSig, box[0], box[1], box[2], box[3]) >= HIDE_BOX_CHANGE
-		when(val action = tracker.onFrame(candidate, regionChanged))
+		val action = tracker.onFrame(candidate, regionChanged)
+		// Görünüm önizlemesi (örnek cümle) gerçek altyazı gelince ya da giderken hemen kalkar.
+		if(previewing && (action is SubtitleTracker.Action.Show || action == SubtitleTracker.Action.Hide))
+		{
+			endPreview()
+			captionView?.visibility = View.GONE
+			placedBox = null
+		}
+		when(action)
 		{
 			is SubtitleTracker.Action.Show ->
 			{
@@ -513,7 +636,7 @@ class CaptionService : Service()
 			is SubtitleTracker.Action.Keep ->
 			{
 				rememberShown(action.candidate, job)
-				if(captionView?.visibility == View.VISIBLE)
+				if(captionView?.visibility == View.VISIBLE && !previewing)
 					placeCaption(action.candidate)
 			}
 			SubtitleTracker.Action.Hide ->
@@ -628,6 +751,7 @@ class CaptionService : Service()
 	private fun showCaption(text: String, candidate: SubtitleCandidate)
 	{
 		val v = captionView ?: return
+		endPreview()
 		v.text = text
 		v.visibility = View.VISIBLE
 		placedBox = null

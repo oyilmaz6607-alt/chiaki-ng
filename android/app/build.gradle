@@ -151,5 +151,8 @@ dependencies {
     implementation libs.mlkit.translate
     implementation libs.coroutines.play.services
 
+    // Telefondan kontrol: TV ekranındaki QR kod
+    implementation libs.zxing.core
+
     testImplementation 'junit:junit:4.13.2'
 }

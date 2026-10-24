@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AltyazıTR: telefon kumandası (TV'nin yerel ağda sunduğu web sayfası) -->
+<resources>
+    <!-- Ana ekran kutucuğu -->
+    <string name="companion_tile_title">Telefondan kontrol et</string>
+    <string name="companion_tile_sub">QR kodu okut, ayarları telefondan yap</string>
+
+    <!-- Durum kartındaki küçük ipucu -->
+    <string name="companion_hint_ready">Telefondan kontrol: %1$s</string>
+    <string name="companion_hint_connected">Telefon bağlı · %1$s</string>
+    <string name="companion_hint_starting">Telefondan kontrol hazırlanıyor…</string>
+    <string name="companion_hint_no_network">Telefondan kontrol için TV\'nin Wi-Fi veya kabloyla ağa bağlı olması gerekir.</string>
+
+    <!-- QR penceresi -->
+    <string name="companion_dialog_title">Telefondan kontrol et</string>
+    <string name="companion_dialog_body">Telefonunuzun kamerasıyla (iPhone veya Android) bu QR kodu okutun ve açılan bağlantıya dokunun. Uygulama kurmanız gerekmez.</string>
+    <string name="companion_dialog_wifi">Telefon ve TV aynı Wi-Fi ağında olmalı.</string>
+    <string name="companion_dialog_features">Telefondan konsolu eşleştirebilir, altyazıyı başlatıp durdurabilir ve görünümü canlı olarak değiştirebilirsiniz.</string>
+    <string name="companion_dialog_manual">QR okutamıyorsanız telefonun tarayıcısına bu adresi yazın:</string>
+    <string name="companion_dialog_code_label">Bağlantı kodu</string>
+    <string name="companion_dialog_waiting">Telefon bekleniyor…</string>
+    <string name="companion_dialog_connected">Telefon bağlandı</string>
+    <string name="companion_dialog_starting">Hazırlanıyor…</string>
+    <string name="companion_dialog_no_network">TV ağa bağlı görünmüyor. TV\'yi Wi-Fi\'a veya kabloyla ağa bağlayıp tekrar deneyin.</string>
+    <string name="companion_dialog_failed">Telefon bağlantısı başlatılamadı (%1$s). Uygulamayı kapatıp yeniden açmayı deneyin.</string>
+    <string name="companion_dialog_close">Kapat</string>
+    <string name="companion_qr_content_description">Telefonla okutulacak QR kod</string>
+</resources>

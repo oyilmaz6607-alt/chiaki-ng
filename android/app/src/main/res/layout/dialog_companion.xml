@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AltyazıTR: "Telefondan kontrol et" — solda büyük QR, sağda kısa talimat, adres ve kısa kod.
+     TV ekranına (960x540dp) kaydırmadan sığar. -->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="28dp"
+    android:paddingEnd="28dp"
+    android:paddingTop="24dp"
+    android:paddingBottom="4dp"
+    android:baselineAligned="false">
+
+    <FrameLayout
+        android:layout_width="360dp"
+        android:layout_height="360dp"
+        android:background="@drawable/bg_companion_qr"
+        android:padding="8dp">
+
+        <ImageView
+            android:id="@+id/qrImageView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/companion_qr_content_description" />
+
+        <ProgressBar
+            android:id="@+id/qrProgressBar"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:indeterminateTint="@color/home_bg" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="28dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <ImageView
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginEnd="12dp"
+                android:src="@drawable/ic_home_phone"
+                android:importantForAccessibility="no"
+                app:tint="@color/home_accent" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/companion_dialog_title"
+                android:textColor="@color/home_text"
+                android:textSize="26sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/bodyTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/companion_dialog_body"
+            android:textColor="@color/home_text"
+            android:textSize="17sp"
+            android:lineSpacingExtra="2dp" />
+
+        <TextView
+            android:id="@+id/wifiTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/companion_dialog_wifi"
+            android:textColor="@color/home_accent"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/companion_dialog_features"
+            android:textColor="@color/home_text_muted"
+            android:textSize="15sp"
+            android:lineSpacingExtra="2dp" />
+
+        <TextView
+            android:id="@+id/manualLabelTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/companion_dialog_manual"
+            android:textColor="@color/home_text_faint"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/urlTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/home_text"
+            android:textSize="20sp"
+            android:fontFamily="monospace"
+            android:textIsSelectable="false"
+            tools:text="http://192.168.1.20:8642" />
+
+        <LinearLayout
+            android:id="@+id/codeLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/companion_dialog_code_label"
+                android:textColor="@color/home_text_muted"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/codeTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:textColor="@color/home_accent"
+                android:textSize="28sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.2"
+                tools:text="4821" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/statusChip"
+            style="@style/Home.Chip"
+            android:layout_marginTop="14dp">
+
+            <ImageView
+                android:id="@+id/statusDotImageView"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:src="@drawable/bg_home_dot"
+                android:importantForAccessibility="no"
+                app:tint="@color/home_offline" />
+
+            <TextView
+                android:id="@+id/statusTextView"
+                style="@style/Home.ChipText"
+                tools:text="@string/companion_dialog_waiting" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL -->
+<!-- AltyazıTR Oyun: telefon kumandası. TV uygulaması bu sayfayı yerel ağda sunar (CompanionServer).
+     Tek dosya, dış kaynak yok. iOS Safari 12+ ile uyumlu olacak şekilde yazıldı (?. ve ?? kullanılmaz). -->
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0B0F17">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AltyazıTR">
+<meta name="format-detection" content="telephone=no">
+<meta name="referrer" content="no-referrer">
+<title>AltyazıTR Oyun · Telefon</title>
+<style>
+:root {
+	--bg: #0B0F17;
+	--bg-top: #141C2C;
+	--surface: #151C29;
+	--surface-2: #1C2536;
+	--surface-deep: #0F1520;
+	--outline: rgba(255, 255, 255, 0.12);
+	--outline-strong: rgba(255, 255, 255, 0.24);
+	--accent: #FFC83D;
+	--accent-2: #FFD970;
+	--on-accent: #17120A;
+	--text: #F4F6FA;
+	--muted: #A3ACBD;
+	--faint: #6B7487;
+	--ready: #4ADE80;
+	--standby: #7DA6FF;
+	--offline: #8A93A6;
+	--danger: #FF6B6B;
+	--radius: 18px;
+	--tap: 52px;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body {
+	margin: 0;
+	min-height: 100vh;
+	background: linear-gradient(180deg, var(--bg-top) 0, var(--bg) 320px) fixed, var(--bg);
+	color: var(--text);
+	font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	padding: env(safe-area-inset-top) env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 24px) env(safe-area-inset-left);
+}
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--accent); }
+.wrap { max-width: 560px; margin: 0 auto; padding: 0 16px; }
+
+/* Üst çubuk */
+header.top {
+	position: sticky; top: 0; z-index: 10;
+	background: rgba(11, 15, 23, 0.92);
+	-webkit-backdrop-filter: saturate(160%) blur(14px);
+	backdrop-filter: saturate(160%) blur(14px);
+	border-bottom: 1px solid var(--outline);
+	padding-top: env(safe-area-inset-top);
+	margin-top: calc(-1 * env(safe-area-inset-top));
+}
+.brand { display: flex; align-items: center; gap: 10px; padding: 12px 0 10px; }
+.mark {
+	width: 34px; height: 34px; border-radius: 10px; flex: none;
+	background: var(--accent); color: var(--on-accent);
+	display: grid; place-items: center; font-weight: 800; font-size: 15px; letter-spacing: -0.5px;
+}
+.brand h1 { font-size: 18px; margin: 0; line-height: 1.1; }
+.brand small { display: block; color: var(--muted); font-size: 13px; font-weight: 400; }
+.conn { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--offline); flex: none; }
+.dot.ready { background: var(--ready); }
+.dot.standby { background: var(--standby); }
+.dot.err { background: var(--danger); }
+.dot.on { background: var(--ready); box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.18); }
+
+nav.tabs { display: flex; gap: 6px; padding: 0 0 10px; }
+nav.tabs button {
+	flex: 1; min-height: 44px; border-radius: 12px; border: 1px solid var(--outline);
+	background: var(--surface); color: var(--muted); font-weight: 600; font-size: 15px;
+}
+nav.tabs button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
+section.panel { display: none; padding-top: 16px; }
+section.panel.active { display: block; }
+
+.card {
+	background: var(--surface); border: 1px solid var(--outline); border-radius: var(--radius);
+	padding: 16px; margin-bottom: 14px;
+}
+.card h2 { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin: 0 0 12px; font-weight: 600; }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+.row { display: flex; align-items: center; gap: 10px; }
+
+.btn {
+	display: flex; align-items: center; justify-content: center; gap: 10px;
+	width: 100%; min-height: var(--tap); padding: 12px 18px; border-radius: 16px;
+	border: 1px solid var(--outline-strong); background: var(--surface-2); color: var(--text);
+	font-weight: 600; font-size: 17px; cursor: pointer; text-decoration: none;
+	-webkit-user-select: none; user-select: none;
+}
+.btn:active { transform: scale(0.985); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-size: 19px; min-height: 60px; }
+.btn.stop { background: var(--danger); color: #1a0606; border-color: var(--danger); font-size: 19px; min-height: 60px; }
+.btn.ghost { background: transparent; }
+.btn[disabled] { opacity: 0.55; pointer-events: none; }
+.spinner {
+	width: 20px; height: 20px; border-radius: 50%; flex: none;
+	border: 3px solid rgba(0, 0, 0, 0.25); border-top-color: currentColor;
+	animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Mesaj kutuları */
+.msg { border-radius: 14px; padding: 12px 14px; margin: 12px 0 0; font-size: 15px; display: none; }
+.msg.show { display: block; }
+.msg.ok { background: rgba(74, 222, 128, 0.12); border: 1px solid rgba(74, 222, 128, 0.35); }
+.msg.err { background: rgba(255, 107, 107, 0.12); border: 1px solid rgba(255, 107, 107, 0.4); }
+.msg.info { background: rgba(125, 166, 255, 0.12); border: 1px solid rgba(125, 166, 255, 0.35); }
+
+/* Durum */
+.caption-state { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.caption-state strong { font-size: 20px; }
+.consoles { display: grid; gap: 10px; }
+.console {
+	display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+	padding: 14px; border-radius: 16px; border: 2px solid var(--outline);
+	background: var(--surface-deep); min-height: 68px; cursor: pointer;
+}
+.console[aria-pressed="true"] { border-color: var(--accent); background: #1a1f2a; }
+.console .info { flex: 1; min-width: 0; }
+.console .name { font-weight: 700; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.console .meta { color: var(--muted); font-size: 14px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; background: var(--surface-2); color: var(--muted); border: 1px solid var(--outline); }
+.badge.paired { color: var(--ready); border-color: rgba(74, 222, 128, 0.35); }
+.badge.unpaired { color: var(--accent); border-color: rgba(255, 200, 61, 0.4); }
+.empty { color: var(--muted); padding: 6px 2px; }
+
+/* Formlar */
+label.field { display: block; margin-bottom: 14px; }
+label.field > span { display: block; font-weight: 600; margin-bottom: 6px; }
+input[type="text"], input[type="tel"], select {
+	width: 100%; min-height: var(--tap); padding: 12px 14px; border-radius: 14px;
+	border: 1px solid var(--outline-strong); background: var(--surface-deep); color: var(--text);
+	font-size: 17px; -webkit-appearance: none; appearance: none;
+}
+select {
+	background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+	background-position: calc(100% - 22px) 50%, calc(100% - 16px) 50%;
+	background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; padding-right: 40px;
+}
+input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255, 200, 61, 0.25); }
+input.invalid { border-color: var(--danger); }
+input.mono { font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.06em; }
+input.pin { font-size: 26px; letter-spacing: 0.3em; text-align: center; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.help { color: var(--muted); font-size: 14px; margin-top: 6px; }
+.seg { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.seg button {
+	min-height: var(--tap); border-radius: 14px; border: 1px solid var(--outline-strong);
+	background: var(--surface-deep); color: var(--text); font-weight: 600; padding: 8px 6px; font-size: 15px;
+}
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+details.more { margin-top: 8px; }
+details.more summary { color: var(--muted); font-size: 14px; padding: 8px 0; cursor: pointer; }
+
+/* Görünüm */
+.preview-wrap { position: -webkit-sticky; position: sticky; top: 112px; z-index: 5; margin: 0 -16px 14px; padding: 6px 16px 8px; background: var(--bg); border-bottom: 1px solid var(--outline); }
+.preview {
+	position: relative; width: 100%; padding-top: 56.25%; overflow: hidden; border-radius: 16px;
+	border: 1px solid var(--outline);
+	background:
+		radial-gradient(ellipse at 30% 30%, #3b5a7a 0, transparent 55%),
+		radial-gradient(ellipse at 75% 60%, #6a4a2e 0, transparent 50%),
+		linear-gradient(180deg, #2a3a4f 0, #1b2230 60%, #10151d 100%);
+}
+.preview .scan {
+	position: absolute; left: 0; right: 0; bottom: 0; border-top: 2px dashed rgba(255, 200, 61, 0.8);
+	background: rgba(255, 200, 61, 0.07); pointer-events: none;
+}
+.preview .scan span {
+	position: absolute; right: 6px; top: 4px; font-size: 11px; color: var(--accent);
+	background: rgba(0, 0, 0, 0.55); padding: 1px 6px; border-radius: 6px;
+}
+.preview .eng {
+	position: absolute; left: 50%; bottom: 9%; transform: translateX(-50%);
+	color: #fff; text-shadow: 0 1px 2px #000; white-space: nowrap; font-size: 2.6vw; opacity: 0.9;
+}
+.preview .cap {
+	position: absolute; left: 50%; transform: translateX(-50%); text-align: center;
+	max-width: 92%; word-wrap: break-word;
+}
+.preview-note { color: var(--faint); font-size: 12px; margin-top: 6px; text-align: center; }
+
+.ctl { padding: 12px 0; border-top: 1px solid var(--outline); }
+.ctl:first-of-type { border-top: 0; padding-top: 0; }
+.ctl-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.ctl-head b { font-weight: 600; }
+.ctl-head output { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+input[type="range"] {
+	width: 100%; height: 44px; -webkit-appearance: none; appearance: none; background: transparent; margin: 0;
+}
+input[type="range"]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--outline); }
+input[type="range"]::-webkit-slider-thumb {
+	-webkit-appearance: none; width: 30px; height: 30px; margin-top: -12px; border-radius: 50%;
+	background: var(--accent); border: 3px solid var(--bg); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+input[type="range"]::-moz-range-track { height: 8px; border-radius: 4px; background: var(--surface-2); }
+input[type="range"]::-moz-range-thumb { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); border: 3px solid var(--bg); }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.swatch {
+	width: 48px; height: 48px; border-radius: 14px; border: 2px solid var(--outline-strong); cursor: pointer;
+	position: relative;
+}
+.swatch[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255, 200, 61, 0.35); }
+.swatch[aria-pressed="true"]::after {
+	content: ""; position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+	border-radius: 50%; background: var(--accent); border: 2px solid #000;
+}
+.switch { position: relative; width: 60px; height: 36px; flex: none; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+.switch i { position: absolute; top: 0; right: 0; bottom: 0; left: 0; border-radius: 18px; background: var(--surface-2); border: 1px solid var(--outline-strong); transition: background 0.15s; }
+.switch i::after { content: ""; position: absolute; left: 4px; top: 4px; width: 26px; height: 26px; border-radius: 50%; background: var(--muted); transition: transform 0.15s, background 0.15s; }
+.switch input:checked + i { background: var(--accent); border-color: var(--accent); }
+.switch input:checked + i::after { transform: translateX(24px); background: var(--on-accent); }
+.saved { font-size: 13px; color: var(--muted); min-height: 20px; text-align: right; margin-top: -4px; }
+.saved.ok { color: var(--ready); }
+.saved.err { color: var(--danger); }
+
+/* Kod girişi */
+#gate { padding-top: 32px; }
+#gate .card { text-align: center; }
+#gate h2 { text-transform: none; letter-spacing: 0; font-size: 20px; color: var(--text); }
+#codeInput { font-size: 34px; letter-spacing: 0.5em; text-align: center; padding-left: 0.5em; max-width: 260px; margin: 8px auto 14px; display: block; }
+.hidden { display: none !important; }
+footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px 0 0; }
+</style>
+</head>
+<body>
+
+<header class="top">
+	<div class="wrap">
+		<div class="brand">
+			<div class="mark" aria-hidden="true">TR</div>
+			<h1>AltyazıTR Oyun<small>Telefon kumandası</small></h1>
+			<div class="conn" id="conn"><span class="dot" id="connDot"></span><span id="connText">Bağlanıyor…</span></div>
+		</div>
+		<nav class="tabs" id="tabs" role="tablist">
+			<button type="button" role="tab" data-tab="status" aria-selected="true">Durum</button>
+			<button type="button" role="tab" data-tab="pair" aria-selected="false">Eşleştir</button>
+			<button type="button" role="tab" data-tab="look" aria-selected="false">Görünüm</button>
+		</nav>
+	</div>
+</header>
+
+<main class="wrap">
+
+	<!-- Jeton yoksa: 4 haneli kod -->
+	<section id="gate" class="hidden">
+		<div class="card">
+			<h2>TV'deki kodu girin</h2>
+			<p class="muted small">TV'de <b>Telefondan kontrol et</b> kutucuğunu açın. QR kodu okutabilir ya da altında yazan 4 haneli kodu buraya girebilirsiniz.</p>
+			<input id="codeInput" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="4 haneli kod">
+			<button class="btn primary" id="codeBtn" type="button">Bağlan</button>
+			<div class="msg" id="gateMsg"></div>
+		</div>
+	</section>
+
+	<!-- Durum -->
+	<section class="panel active" id="panel-status" role="tabpanel">
+		<div class="card">
+			<div class="caption-state">
+				<span class="dot" id="capDot"></span>
+				<div>
+					<strong id="capTitle">Altyazı kapalı</strong>
+					<div class="muted small" id="capSub">Konsolu seçip başlatın.</div>
+				</div>
+			</div>
+			<button class="btn primary" id="capBtn" type="button">Altyazıyı Başlat</button>
+			<div class="msg" id="capMsg"></div>
+		</div>
+		<div class="card">
+			<h2>Konsollar</h2>
+			<div class="consoles" id="consoleList"><div class="empty">Yükleniyor…</div></div>
+			<p class="help">Ağda bulunan konsollar listelenir. Altyazı, seçili ve eşleştirilmiş konsolla başlar.</p>
+		</div>
+	</section>
+
+	<!-- Eşleştir -->
+	<section class="panel" id="panel-pair" role="tabpanel">
+		<form class="card" id="pairForm" novalidate autocomplete="off">
+			<h2>Konsolu eşleştir</h2>
+			<p class="muted small" style="margin-top:0">Bu işlem yalnızca bir kez yapılır. Eşleştirme TV'de çalışır; bilgiler telefonda saklanmaz.</p>
+
+			<label class="field">
+				<span>Konsolun IP adresi</span>
+				<input type="text" id="hostInput" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="192.168.1.20" class="mono">
+				<div class="help">Ağda bulunan konsolun adresi otomatik yazılır. Boşsa PS5'te Ayarlar → Ağ → Bağlantı Durumu → Bağlantı Durumunu Görüntüle ekranındaki IPv4 adresini girin.</div>
+			</label>
+
+			<div class="field" style="margin-bottom:14px">
+				<span style="display:block;font-weight:600;margin-bottom:6px">Konsol</span>
+				<div class="seg" id="consoleSeg">
+					<button type="button" data-v="ps5" aria-pressed="true">PS5</button>
+					<button type="button" data-v="ps4_8" aria-pressed="false">PS4 (8.0+)</button>
+				</div>
+				<details class="more">
+					<summary>Eski PS4 yazılımı</summary>
+					<div class="seg">
+						<button type="button" data-v="ps4_7" aria-pressed="false">PS4 7.x</button>
+						<button type="button" data-v="ps4_old" aria-pressed="false">PS4 7.0 öncesi</button>
+					</div>
+				</details>
+			</div>
+
+			<label class="field">
+				<span id="psnLabel">PSN Account ID (Encoded ID)</span>
+				<input type="text" id="psnInput" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="AbCdEfGh1234=" class="mono">
+				<div class="help" id="psnHelp">
+					<a href="https://psn.flipscreen.games" target="_blank" rel="noopener noreferrer">psn.flipscreen.games</a>
+					adresini açın, eşleştireceğiniz PSN kullanıcı adını yazın ve çıkan <b>Encoded ID</b> değerini kopyalayıp buraya yapıştırın.
+				</div>
+			</label>
+
+			<label class="field">
+				<span>PIN (8 hane)</span>
+				<input type="tel" id="pinInput" class="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="12345678" autocomplete="off">
+				<div class="help" id="pinHelp">PS5: Ayarlar → Sistem → Remote Play → Cihazı Bağla. Ekrandaki 8 haneli kodu girin (kod birkaç dakika geçerlidir).</div>
+			</label>
+
+			<button class="btn primary" id="pairBtn" type="submit">Eşleştir</button>
+			<div class="msg" id="pairMsg"></div>
+			<p class="help">İpucu: Eşleştirmeyi ikinci bir PSN hesabıyla yaparsanız kendi hesabınızla rahatça oynarsınız.</p>
+		</form>
+	</section>
+
+	<!-- Görünüm -->
+	<section class="panel" id="panel-look" role="tabpanel">
+		<div class="preview-wrap">
+			<div class="preview" id="preview" aria-hidden="true">
+				<div class="scan" id="pvScan"><span id="pvScanLabel"></span></div>
+				<div class="eng" id="pvEng">We all come to a story with hopes and expectations.</div>
+				<div class="cap" id="pvCap">Hepimiz bir hikâyeye umutlar ve beklentilerle geliriz.</div>
+			</div>
+			<div class="preview-note">Yaklaşık önizleme · TV'de değişiklik anında uygulanır</div>
+		</div>
+		<div class="card" id="lookCard">
+			<div class="saved" id="savedState"></div>
+			<div id="controls"><div class="empty">Yükleniyor…</div></div>
+		</div>
+		<button class="btn ghost" id="resetBtn" type="button">Varsayılan görünüme dön</button>
+		<p class="help" style="text-align:center">Altyazı çalışırken ekranda altyazı yoksa TV yeni görünümü birkaç saniye örnek bir cümleyle gösterir.</p>
+	</section>
+
+	<footer id="footer">AltyazıTR Oyun</footer>
+</main>
+
+<script>
+(function () {
+	"use strict";
+
+	// ------------------------------------------------------------ yardımcılar
+
+	var TOKEN_KEY = "altyazitr_token";
+	var memoryToken = null;
+
+	function store(get, value) {
+		try {
+			if (get) return window.sessionStorage.getItem(TOKEN_KEY);
+			if (value) window.sessionStorage.setItem(TOKEN_KEY, value);
+			else window.sessionStorage.removeItem(TOKEN_KEY);
+		} catch (e) { /* özel tarama: yalnızca bellekte tut */ }
+		return null;
+	}
+	function getToken() { return memoryToken || store(true); }
+	function setToken(t) { memoryToken = t; store(false, t); }
+
+	function $(id) { return document.getElementById(id); }
+	function el(tag, attrs, children) {
+		var e = document.createElement(tag);
+		if (attrs) for (var k in attrs) {
+			if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+			if (k === "text") e.textContent = attrs[k];
+			else if (k === "cls") e.className = attrs[k];
+			else e.setAttribute(k, attrs[k]);
+		}
+		if (children) children.forEach(function (c) { if (c) e.appendChild(c); });
+		return e;
+	}
+	function showMsg(node, kind, text) {
+		node.className = "msg show " + kind;
+		node.textContent = text;
+	}
+	function hideMsg(node) { node.className = "msg"; node.textContent = ""; }
+
+	var gateShown = false;
+	function showGate(message) {
+		gateShown = true;
+		setToken(null);
+		$("gate").classList.remove("hidden");
+		document.querySelectorAll("section.panel").forEach(function (p) { p.classList.add("hidden"); });
+		$("tabs").classList.add("hidden");
+		if (message) showMsg($("gateMsg"), "err", message);
+		setConn("err", "Bağlı değil");
+	}
+	function hideGate() {
+		gateShown = false;
+		$("gate").classList.add("hidden");
+		document.querySelectorAll("section.panel").forEach(function (p) { p.classList.remove("hidden"); });
+		$("tabs").classList.remove("hidden");
+		hideMsg($("gateMsg"));
+	}
+
+	function setConn(kind, text) {
+		$("connDot").className = "dot " + kind;
+		$("connText").textContent = text;
+	}
+
+	/** JSON isteği. Hata durumunda {ok:false,error} döner, istisna fırlatmaz. */
+	function api(method, path, body, timeoutMs) {
+		var headers = { "X-Token": getToken() || "" };
+		var opts = { method: method, headers: headers, cache: "no-store", credentials: "omit" };
+		if (body !== undefined) {
+			headers["Content-Type"] = "application/json";
+			opts.body = JSON.stringify(body);
+		}
+		var controller = typeof AbortController === "function" ? new AbortController() : null;
+		var timer = null;
+		if (controller) {
+			opts.signal = controller.signal;
+			timer = setTimeout(function () { controller.abort(); }, timeoutMs || 12000);
+		}
+		return fetch(path, opts).then(function (res) {
+			return res.text().then(function (text) {
+				var data;
+				try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { ok: false, error: "Beklenmeyen yanıt (" + res.status + ")" }; }
+				data.status = res.status;
+				if (res.status === 401 && path !== "/api/pair") {
+					showGate(data.error || "Bağlantı kodu geçersiz. TV'deki QR kodunu yeniden okutun.");
+				}
+				if (res.ok && data.ok !== false) setConn("on", "Bağlı");
+				return data;
+			});
+		}).catch(function (e) {
+			setConn("err", "TV'ye ulaşılamıyor");
+			var aborted = e && e.name === "AbortError";
+			return { ok: false, status: 0, error: aborted
+				? "TV zamanında yanıt vermedi. Telefon ve TV aynı Wi-Fi ağında mı?"
+				: "TV'ye ulaşılamıyor. Telefon ve TV aynı Wi-Fi ağında olmalı ve TV'de uygulama açık olmalı." };
+		}).then(function (data) {
+			if (timer) clearTimeout(timer);
+			return data;
+		});
+	}
+
+	// ------------------------------------------------------------ sekmeler
+
+	var currentTab = "status";
+	function selectTab(name) {
+		currentTab = name;
+		document.querySelectorAll("#tabs button").forEach(function (b) {
+			b.setAttribute("aria-selected", b.getAttribute("data-tab") === name ? "true" : "false");
+		});
+		document.querySelectorAll("section.panel").forEach(function (p) {
+			p.classList.toggle("active", p.id === "panel-" + name);
+		});
+		if (name === "pair") loadPairDefaults();
+		if (name === "look") loadSettings();
+		if (name === "status") refreshState();
+		window.scrollTo(0, 0);
+	}
+	document.querySelectorAll("#tabs button").forEach(function (b) {
+		b.addEventListener("click", function () { selectTab(b.getAttribute("data-tab")); });
+	});
+
+	// ------------------------------------------------------------ durum
+
+	var state = null;
+	var chosenKey = null;
+	var captionBusy = false;
+
+	var STATE_LABEL = { ready: "Hazır", standby: "Uykuda", unknown: "Ağda görünmüyor" };
+
+	function renderState() {
+		if (!state) return;
+		var running = state.caption && state.caption.running;
+		$("capDot").className = "dot" + (running ? " on" : "");
+		$("capTitle").textContent = running ? "Altyazı çalışıyor" : "Altyazı kapalı";
+		var consoles = state.consoles || [];
+		if (!chosenKey || !consoles.some(function (c) { return c.key === chosenKey; })) chosenKey = state.selectedKey || null;
+		var chosen = null;
+		consoles.forEach(function (c) { if (c.key === chosenKey) chosen = c; });
+
+		if (running) $("capSub").textContent = "TV girişini PS5'e geçirip oynayabilirsiniz.";
+		else if (!chosen) $("capSub").textContent = "Ağda konsol bulunamadı. PS5 açık ve aynı ağda olmalı.";
+		else if (!chosen.registered) $("capSub").textContent = "Seçili konsol eşleştirilmemiş. \"Eşleştir\" sekmesinden eşleştirin.";
+		else $("capSub").textContent = (chosen.name || chosen.host) + " ile başlatılacak.";
+
+		if (!captionBusy) {
+			var btn = $("capBtn");
+			btn.disabled = false;
+			btn.className = "btn " + (running ? "stop" : "primary");
+			btn.textContent = running ? "Altyazıyı Durdur" : "Altyazıyı Başlat";
+		}
+
+		var list = $("consoleList");
+		list.textContent = "";
+		if (!consoles.length) {
+			list.appendChild(el("div", { cls: "empty", text: "Henüz konsol yok. PS5'in açık ve TV ile aynı ağda olduğundan emin olun; aranıyor…" }));
+		}
+		consoles.forEach(function (c) {
+			var meta = (c.ps5 ? "PS5" : "PS4") + (c.host ? " · " + c.host : "") + " · " + (STATE_LABEL[c.state] || c.state);
+			var item = el("button", { type: "button", cls: "console", "aria-pressed": c.key === chosenKey ? "true" : "false" }, [
+				el("span", { cls: "dot " + (c.state === "ready" ? "ready" : c.state === "standby" ? "standby" : "") }),
+				el("span", { cls: "info" }, [
+					el("div", { cls: "name", text: c.name || "Konsol" }),
+					el("div", { cls: "meta", text: meta })
+				]),
+				el("span", { cls: "badge " + (c.registered ? "paired" : "unpaired"), text: c.registered ? "Eşleşmiş" : "Eşleşmemiş" })
+			]);
+			item.addEventListener("click", function () {
+				chosenKey = c.key;
+				if (!c.registered) {
+					pairPrefill = { host: c.host, ps5: c.ps5 };
+					renderState();
+					selectTab("pair");
+					return;
+				}
+				renderState();
+			});
+			list.appendChild(item);
+		});
+		if (state.version) $("footer").textContent = "AltyazıTR Oyun " + state.version;
+	}
+
+	function refreshState() {
+		if (gateShown || !getToken()) return Promise.resolve();
+		return api("GET", "/api/state").then(function (data) {
+			if (data.ok) { state = data; renderState(); }
+		});
+	}
+
+	$("capBtn").addEventListener("click", function () {
+		if (captionBusy) return;
+		var running = state && state.caption && state.caption.running;
+		var btn = $("capBtn");
+		captionBusy = true;
+		btn.disabled = true;
+		btn.textContent = "";
+		btn.appendChild(el("span", { cls: "spinner" }));
+		btn.appendChild(document.createTextNode(running ? " Durduruluyor…" : " Başlatılıyor…"));
+		hideMsg($("capMsg"));
+		var req = running ? api("POST", "/api/caption/stop") : api("POST", "/api/caption/start", { key: chosenKey || "" }, 20000);
+		req.then(function (data) {
+			captionBusy = false;
+			if (data.ok) showMsg($("capMsg"), "ok", data.message || "Tamam");
+			else showMsg($("capMsg"), data.code === "waking" ? "info" : "err", data.error || "İşlem başarısız oldu.");
+			// Servisin durumu bir an sonra değişir.
+			setTimeout(refreshState, 900);
+			refreshState();
+		});
+	});
+
+	// ------------------------------------------------------------ eşleştir
+
+	var consoleType = "ps5";
+	var pairPrefill = null;
+	var pairDefaultsLoaded = false;
+
+	var PIN_HELP = {
+		ps5: "PS5: Ayarlar → Sistem → Remote Play → Cihazı Bağla. Ekrandaki 8 haneli kodu girin (kod birkaç dakika geçerlidir).",
+		ps4: "PS4: Ayarlar → Remote Play Bağlantı Ayarları → Cihaz Ekle. Ekrandaki 8 haneli kodu girin."
+	};
+
+	function setConsoleType(v) {
+		consoleType = v;
+		document.querySelectorAll("#panel-pair .seg button").forEach(function (b) {
+			b.setAttribute("aria-pressed", b.getAttribute("data-v") === v ? "true" : "false");
+		});
+		var legacy = v === "ps4_old";
+		$("psnLabel").textContent = legacy ? "PSN kullanıcı adı" : "PSN Account ID (Encoded ID)";
+		$("psnInput").placeholder = legacy ? "kullanici_adi" : "AbCdEfGh1234=";
+		$("psnHelp").classList.toggle("hidden", legacy);
+		$("pinHelp").textContent = v === "ps5" ? PIN_HELP.ps5 : PIN_HELP.ps4;
+		if (v === "ps4_7" || v === "ps4_old") document.querySelector("#panel-pair details").open = true;
+	}
+	document.querySelectorAll("#panel-pair .seg button").forEach(function (b) {
+		b.addEventListener("click", function () { setConsoleType(b.getAttribute("data-v")); });
+	});
+
+	function loadPairDefaults() {
+		if (pairPrefill) {
+			if (pairPrefill.host) $("hostInput").value = pairPrefill.host;
+			setConsoleType(pairPrefill.ps5 ? "ps5" : "ps4_8");
+			pairPrefill = null;
+			pairDefaultsLoaded = true;
+			return;
+		}
+		if (pairDefaultsLoaded) return;
+		api("GET", "/api/consoles").then(function (data) {
+			if (!data.ok) return;
+			pairDefaultsLoaded = true;
+			if (!$("hostInput").value && data.suggestedHost) {
+				$("hostInput").value = data.suggestedHost;
+				setConsoleType(data.suggestedPS5 === false ? "ps4_8" : "ps5");
+			}
+		});
+	}
+
+	$("pinInput").addEventListener("input", function () {
+		var v = this.value.replace(/\D+/g, "").slice(0, 8);
+		if (v !== this.value) this.value = v;
+		this.classList.remove("invalid");
+	});
+	$("hostInput").addEventListener("input", function () { this.classList.remove("invalid"); });
+	$("psnInput").addEventListener("input", function () { this.classList.remove("invalid"); });
+
+	var FIELD_INPUT = { host: "hostInput", psnId: "psnInput", pin: "pinInput" };
+
+	$("pairForm").addEventListener("submit", function (ev) {
+		ev.preventDefault();
+		var host = $("hostInput").value.trim();
+		var psn = $("psnInput").value.trim();
+		var pin = $("pinInput").value.replace(/\D+/g, "");
+		var msg = $("pairMsg");
+		hideMsg(msg);
+		var bad = null;
+		if (!host) bad = ["host", "Konsolun IP adresini girin."];
+		else if (!psn) bad = ["psnId", consoleType === "ps4_old" ? "PSN kullanıcı adını girin." : "Account ID'yi (Encoded ID) girin."];
+		else if (pin.length !== 8) bad = ["pin", "PIN 8 haneli olmalı."];
+		if (bad) {
+			$(FIELD_INPUT[bad[0]]).classList.add("invalid");
+			$(FIELD_INPUT[bad[0]]).focus();
+			showMsg(msg, "err", bad[1]);
+			return;
+		}
+		var btn = $("pairBtn");
+		btn.disabled = true;
+		btn.textContent = "";
+		btn.appendChild(el("span", { cls: "spinner" }));
+		btn.appendChild(document.createTextNode(" Eşleştiriliyor…"));
+		showMsg(msg, "info", "TV konsola bağlanıyor. Bu işlem 30 saniyeye kadar sürebilir; sayfayı kapatmayın.");
+		api("POST", "/api/regist", { host: host, console: consoleType, psnId: psn, pin: pin }, 75000).then(function (data) {
+			btn.disabled = false;
+			btn.textContent = "Eşleştir";
+			if (data.ok) {
+				showMsg(msg, "ok", data.message || "Eşleştirildi.");
+				$("pinInput").value = "";
+				refreshState();
+			} else {
+				if (data.field && FIELD_INPUT[data.field]) $(FIELD_INPUT[data.field]).classList.add("invalid");
+				showMsg(msg, "err", data.error || "Eşleştirme başarısız oldu.");
+			}
+		});
+	});
+
+	// ------------------------------------------------------------ görünüm
+
+	var specs = null;
+	var values = {};
+	var pending = {};
+	var saveTimer = null;
+	var saving = false;
+	var controlsBuilt = false;
+	var SAVE_DELAY = 250;
+
+	var UNITS = {
+		subtitle_text_size: " sp",
+		subtitle_caption_bg_opacity: "%",
+		subtitle_caption_corner_radius: " dp",
+		subtitle_caption_max_width: "%",
+		subtitle_capture_percent: "%",
+		subtitle_interval_ms: " ms"
+	};
+	var SWATCH_KEYS = { subtitle_caption_text_color: true, subtitle_caption_bg_color: true };
+	var FONT_STACK = {
+		inter: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+		atkinson: "'Atkinson Hyperlegible', Verdana, -apple-system, sans-serif",
+		lexend: "Lexend, 'Avenir Next', Avenir, -apple-system, sans-serif",
+		noto_sans: "'Noto Sans', Roboto, 'Helvetica Neue', Arial, sans-serif",
+		system: "system-ui, -apple-system, Roboto, sans-serif"
+	};
+	// Bölümler: anahtar → başlık (yoksa bir önceki bölümde kalır)
+	var GROUPS = {
+		subtitle_caption_font: "Yazı",
+		subtitle_caption_bg_color: "Arka plan",
+		subtitle_caption_position: "Konum ve yerleşim",
+		subtitle_capture_percent: "Okuma (tarama)"
+	};
+
+	function loadSettings() {
+		if (saving || Object.keys(pending).length) return;
+		api("GET", "/api/settings").then(function (data) {
+			if (!data.ok) {
+				if (!controlsBuilt) $("controls").textContent = data.error || "Ayarlar yüklenemedi.";
+				return;
+			}
+			specs = data.specs;
+			values = data.values || {};
+			if (!controlsBuilt) buildControls();
+			syncControls();
+			renderPreview();
+		});
+	}
+
+	function buildControls() {
+		var root = $("controls");
+		root.textContent = "";
+		specs.forEach(function (s) {
+			if (GROUPS[s.key]) root.appendChild(el("h2", { text: GROUPS[s.key], style: "margin-top:" + (root.childNodes.length ? "18px" : "0") }));
+			var out = el("output", { id: "out-" + s.key });
+			var head = el("div", { cls: "ctl-head" }, [el("b", { text: s.title }), s.type === "int" ? out : null]);
+			var box = el("div", { cls: "ctl" }, [head]);
+			var input;
+			if (s.type === "int") {
+				input = el("input", { type: "range", min: s.min, max: s.max, step: s.step || 1, id: "in-" + s.key, "aria-label": s.title });
+				input.addEventListener("input", function () {
+					var v = parseInt(input.value, 10);
+					out.textContent = v + (UNITS[s.key] || "");
+					queue(s.key, v);
+				});
+				box.appendChild(input);
+			} else if (s.type === "bool") {
+				input = el("input", { type: "checkbox", id: "in-" + s.key, role: "switch", "aria-label": s.title });
+				input.addEventListener("change", function () { queue(s.key, input.checked); });
+				head.appendChild(el("label", { cls: "switch" }, [input, el("i")]));
+			} else if (SWATCH_KEYS[s.key]) {
+				var sw = el("div", { cls: "swatches", id: "in-" + s.key });
+				s.options.forEach(function (o) {
+					var b = el("button", { type: "button", cls: "swatch", "data-v": o.value, title: o.label, "aria-label": o.label, "aria-pressed": "false" });
+					b.style.background = o.value;
+					b.addEventListener("click", function () {
+						markSwatch(s.key, o.value);
+						queue(s.key, o.value);
+					});
+					sw.appendChild(b);
+				});
+				head.appendChild(el("span", { cls: "muted small", id: "lbl-" + s.key }));
+				box.appendChild(sw);
+			} else {
+				input = el("select", { id: "in-" + s.key, "aria-label": s.title });
+				s.options.forEach(function (o) { input.appendChild(el("option", { value: o.value, text: o.label })); });
+				input.addEventListener("change", function () { queue(s.key, input.value); });
+				box.appendChild(input);
+			}
+			root.appendChild(box);
+		});
+		controlsBuilt = true;
+	}
+
+	function specFor(key) {
+		var r = null;
+		(specs || []).forEach(function (s) { if (s.key === key) r = s; });
+		return r;
+	}
+
+	function markSwatch(key, value) {
+		var s = specFor(key);
+		document.querySelectorAll("#in-" + key + " .swatch").forEach(function (b) {
+			b.setAttribute("aria-pressed", b.getAttribute("data-v").toUpperCase() === String(value).toUpperCase() ? "true" : "false");
+		});
+		var lbl = $("lbl-" + key);
+		if (lbl && s) s.options.forEach(function (o) { if (o.value.toUpperCase() === String(value).toUpperCase()) lbl.textContent = o.label; });
+	}
+
+	function syncControls() {
+		(specs || []).forEach(function (s) {
+			if (Object.prototype.hasOwnProperty.call(pending, s.key)) return;
+			var v = values[s.key];
+			if (v === undefined) v = s.default;
+			var input = $("in-" + s.key);
+			if (!input) return;
+			if (s.type === "int") {
+				input.value = v;
+				$("out-" + s.key).textContent = v + (UNITS[s.key] || "");
+			} else if (s.type === "bool") {
+				input.checked = !!v;
+			} else if (SWATCH_KEYS[s.key]) {
+				markSwatch(s.key, v);
+			} else {
+				input.value = v;
+			}
+		});
+	}
+
+	function queue(key, value) {
+		pending[key] = value;
+		values[key] = value;
+		renderPreview();
+		setSaved("", "Kaydediliyor…");
+		if (saveTimer) clearTimeout(saveTimer);
+		saveTimer = setTimeout(flush, SAVE_DELAY);
+	}
+
+	function flush() {
+		saveTimer = null;
+		if (saving) { saveTimer = setTimeout(flush, SAVE_DELAY); return; }
+		var keys = Object.keys(pending);
+		if (!keys.length) return;
+		var body = pending;
+		pending = {};
+		saving = true;
+		api("POST", "/api/settings", body).then(function (data) {
+			saving = false;
+			if (data.ok) {
+				for (var k in data.values) if (!Object.prototype.hasOwnProperty.call(pending, k)) values[k] = data.values[k];
+				if (!Object.keys(pending).length) {
+					syncControls();
+					renderPreview();
+					setSaved("ok", data.captionRunning ? "Kaydedildi · TV'de uygulandı" : "Kaydedildi");
+				}
+			} else {
+				setSaved("err", data.error || "Kaydedilemedi");
+			}
+		});
+	}
+
+	var savedTimer = null;
+	function setSaved(kind, text) {
+		var n = $("savedState");
+		n.className = "saved" + (kind ? " " + kind : "");
+		n.textContent = text;
+		if (savedTimer) clearTimeout(savedTimer);
+		if (kind === "ok") savedTimer = setTimeout(function () { n.textContent = ""; }, 2500);
+	}
+
+	$("resetBtn").addEventListener("click", function () {
+		if (!window.confirm("Yazı tipi, boyut, renk ve konum önerilen TV ayarlarına dönsün mü?")) return;
+		pending = {};
+		if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+		saving = true;
+		setSaved("", "Sıfırlanıyor…");
+		api("POST", "/api/settings", { _reset: true }).then(function (data) {
+			saving = false;
+			if (data.ok) {
+				values = data.values;
+				syncControls();
+				renderPreview();
+				setSaved("ok", "Varsayılan görünüme dönüldü");
+			} else setSaved("err", data.error || "Sıfırlanamadı");
+		});
+	});
+
+	function hexToRgb(hex) {
+		var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || ""));
+		return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [0, 0, 0];
+	}
+	function v(key, def) { return values[key] === undefined ? def : values[key]; }
+
+	/** CaptionStyle.applyTo'nun CSS ile yaklaşık karşılığı. TV ekranı ~960dp genişlikte varsayılır. */
+	function renderPreview() {
+		var box = $("preview");
+		var cap = $("pvCap");
+		var W = box.clientWidth || 320;
+		var scale = W / 960;
+		var sizeSp = Math.max(14, Math.min(56, v("subtitle_text_size", 30)));
+		var textPx = sizeSp * scale;
+		var rgb = hexToRgb(v("subtitle_caption_bg_color", "#000000"));
+		var opacity = Math.max(0, Math.min(100, v("subtitle_caption_bg_opacity", 75))) / 100;
+		var shadow = v("subtitle_caption_shadow", "soft");
+		var position = v("subtitle_caption_position", "cover");
+		var bold = v("subtitle_caption_bold", true);
+
+		cap.style.fontFamily = FONT_STACK[v("subtitle_caption_font", "inter")] || FONT_STACK.system;
+		cap.style.fontWeight = bold ? "600" : "400";
+		cap.style.fontSize = textPx.toFixed(2) + "px";
+		cap.style.lineHeight = String(Math.max(0.9, Math.min(1.6, parseFloat(v("subtitle_caption_line_spacing", "1.1")) || 1.1)) * 1.17);
+		cap.style.color = v("subtitle_caption_text_color", "#FFFFFF");
+		cap.style.background = "rgba(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + "," + opacity + ")";
+		cap.style.borderRadius = (Math.max(0, Math.min(24, v("subtitle_caption_corner_radius", 8))) * scale).toFixed(2) + "px";
+		cap.style.padding = (textPx * 0.22).toFixed(2) + "px " + (textPx * 0.55).toFixed(2) + "px";
+		if (shadow === "none") cap.style.textShadow = "none";
+		else if (shadow === "outline") {
+			var r = Math.max(1, textPx * 0.06).toFixed(2);
+			cap.style.textShadow = "0 0 " + r + "px #000, 0 0 " + r + "px #000, 0 0 " + r + "px #000, 0 0 " + r + "px #000";
+		} else {
+			var o = Math.max(0.5, textPx * 0.035).toFixed(2);
+			cap.style.textShadow = o + "px " + o + "px " + Math.max(1, textPx * 0.08).toFixed(2) + "px rgba(0,0,0,0.86)";
+		}
+
+		var eng = $("pvEng");
+		eng.style.fontSize = (26 * scale).toFixed(2) + "px";
+		cap.style.top = "auto";
+		cap.style.bottom = "auto";
+		if (position === "cover") {
+			eng.style.visibility = "hidden";
+			cap.style.bottom = "7%";
+			cap.style.maxWidth = "92%";
+		} else {
+			eng.style.visibility = "visible";
+			var margin = (48 * scale).toFixed(2) + "px";
+			if (position === "top") cap.style.top = margin; else cap.style.bottom = margin;
+			cap.style.maxWidth = Math.max(50, Math.min(100, v("subtitle_caption_max_width", 80))) + "%";
+		}
+
+		var scan = Math.max(10, Math.min(100, v("subtitle_capture_percent", 35)));
+		$("pvScan").style.height = scan + "%";
+		$("pvScanLabel").textContent = "Taranan alan %" + scan;
+	}
+	window.addEventListener("resize", renderPreview);
+
+	// ------------------------------------------------------------ kod ile bağlanma
+
+	$("codeInput").addEventListener("input", function () {
+		var val = this.value.replace(/\D+/g, "").slice(0, 4);
+		if (val !== this.value) this.value = val;
+		if (val.length === 4) $("codeBtn").click();
+	});
+	$("codeBtn").addEventListener("click", function () {
+		var code = $("codeInput").value.replace(/\D+/g, "");
+		if (code.length !== 4) { showMsg($("gateMsg"), "err", "TV'deki 4 haneli kodu girin."); return; }
+		var btn = $("codeBtn");
+		btn.disabled = true;
+		api("POST", "/api/pair", { code: code }).then(function (data) {
+			btn.disabled = false;
+			if (data.ok && data.token) {
+				setToken(data.token);
+				$("codeInput").value = "";
+				hideGate();
+				start();
+			} else {
+				$("codeInput").value = "";
+				showMsg($("gateMsg"), "err", data.error || "Kod yanlış.");
+			}
+		});
+	});
+
+	// ------------------------------------------------------------ başlangıç
+
+	var pollTimer = null;
+	function poll() {
+		if (pollTimer) clearTimeout(pollTimer);
+		pollTimer = setTimeout(function () {
+			if (document.visibilityState !== "hidden" && !gateShown) {
+				if (currentTab === "status") refreshState().then(poll);
+				else if (currentTab === "look" && !saving && !Object.keys(pending).length) {
+					api("GET", "/api/state").then(function (d) { if (d.ok) state = d; poll(); });
+				} else poll();
+			} else poll();
+		}, 3000);
+	}
+
+	function start() {
+		setConsoleType("ps5");
+		refreshState();
+		loadPairDefaults();
+		poll();
+	}
+
+	document.addEventListener("visibilitychange", function () {
+		if (document.visibilityState === "visible" && !gateShown) {
+			refreshState();
+			if (currentTab === "look") loadSettings();
+		}
+	});
+
+	// Adresteki jeton alınıp adres çubuğundan silinir (ekran görüntüsünde/geçmişte görünmesin).
+	var match = /[?&]t=([A-Za-z0-9_-]{8})(?:&|$)/.exec(window.location.search);
+	if (match) {
+		setToken(match[1]);
+		try { window.history.replaceState(null, "", window.location.pathname); } catch (e) { /* yok say */ }
+	}
+	renderPreview();
+	if (getToken()) start();
+	else showGate(null);
+})();
+</script>
+</body>
+</html>

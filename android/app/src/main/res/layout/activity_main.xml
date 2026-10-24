@@ -190,6 +190,37 @@
                 android:layout_height="0dp"
                 android:layout_weight="1" />
 
+            <!-- Telefondan kontrol adresi (küçük ipucu) -->
+            <LinearLayout
+                android:id="@+id/companionHintLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_marginEnd="6dp"
+                    android:src="@drawable/ic_home_phone"
+                    android:importantForAccessibility="no"
+                    app:tint="@color/home_text_faint" />
+
+                <TextView
+                    android:id="@+id/companionHintTextView"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@color/home_text_faint"
+                    android:textSize="13sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    tools:text="Telefondan kontrol: http://192.168.1.20:8642" />
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/heroHintTextView"
                 android:layout_width="match_parent"
@@ -302,6 +333,32 @@
                     <TextView
                         style="@style/Home.TileSubtitle"
                         android:text="@string/home_tile_pair_sub" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tileCompanion"
+                style="@style/Home.Tile"
+                android:layout_marginTop="12dp"
+                android:nextFocusLeft="@id/primaryButton">
+
+                <ImageView
+                    style="@style/Home.TileIcon"
+                    android:src="@drawable/ic_home_phone" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/Home.TileTitle"
+                        android:text="@string/companion_tile_title" />
+
+                    <TextView
+                        style="@style/Home.TileSubtitle"
+                        android:text="@string/companion_tile_sub" />
                 </LinearLayout>
             </LinearLayout>
 

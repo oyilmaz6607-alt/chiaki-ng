@@ -22,7 +22,10 @@ import com.metallic.chiaki.BuildConfig
 import com.metallic.chiaki.R
 import com.metallic.chiaki.common.*
 import com.metallic.chiaki.common.ext.viewModelFactory
+import com.metallic.chiaki.companion.CompanionServer
+import com.metallic.chiaki.companion.QrCode
 import com.metallic.chiaki.databinding.ActivityMainBinding
+import com.metallic.chiaki.databinding.DialogCompanionBinding
 import com.metallic.chiaki.databinding.DialogHomeAboutBinding
 import com.metallic.chiaki.databinding.DialogHomeHelpBinding
 import com.metallic.chiaki.databinding.ItemHomeHelpStepBinding
@@ -74,12 +77,22 @@ class MainActivity : AppCompatActivity()
 	private val handler = Handler(Looper.getMainLooper())
 	private var lastCaptionRunning: Boolean? = null
 
+	/** Telefondan kontrol penceresi (açıksa). */
+	private var companionDialog: androidx.appcompat.app.AlertDialog? = null
+	private var companionBinding: DialogCompanionBinding? = null
+	private var companionQrUrl: String? = null
+	private val companionListener: () -> Unit = {
+		updateCompanionHint()
+		updateCompanionDialog()
+	}
+
 	private val refreshRunnable = object: Runnable
 	{
 		override fun run()
 		{
 			if(lastCaptionRunning != CaptionService.isRunning)
 				updateHero()
+			updateCompanionHint()
 			handler.postDelayed(this, STATE_REFRESH_MS)
 		}
 	}
@@ -116,7 +129,7 @@ class MainActivity : AppCompatActivity()
 		binding.consolesRecyclerView.itemAnimator = null
 		binding.consolesLabelTextView.text = getString(R.string.home_section_consoles) + "  ·  " + getString(R.string.home_console_long_press_hint)
 
-		listOf(binding.tileRemotePlay, binding.tileSettings, binding.tilePair, binding.tileHelp).forEach {
+		listOf(binding.tileRemotePlay, binding.tileSettings, binding.tilePair, binding.tileCompanion, binding.tileHelp).forEach {
 			HomeFocus.applyScale(it, 1.03f)
 		}
 		HomeFocus.applyScale(binding.primaryButton, 1.05f)
@@ -126,6 +139,7 @@ class MainActivity : AppCompatActivity()
 		binding.tileRemotePlay.setOnClickListener { remotePlayAction() }
 		binding.tileSettings.setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
 		binding.tilePair.setOnClickListener { showAddConsole() }
+		binding.tileCompanion.setOnClickListener { showCompanion() }
 		binding.tileHelp.setOnClickListener { showHelp() }
 		binding.aboutButton.setOnClickListener { showAbout() }
 
@@ -142,6 +156,9 @@ class MainActivity : AppCompatActivity()
 	{
 		super.onStart()
 		viewModel.discoveryManager.resume()
+		CompanionServer.addListener(companionListener)
+		CompanionServer.acquire(this, CompanionServer.HOLDER_HOME)
+		updateCompanionHint()
 	}
 
 	override fun onResume()
@@ -170,12 +187,16 @@ class MainActivity : AppCompatActivity()
 	{
 		super.onStop()
 		viewModel.discoveryManager.pause()
+		CompanionServer.removeListener(companionListener)
+		CompanionServer.release(CompanionServer.HOLDER_HOME)
 	}
 
 	override fun onDestroy()
 	{
 		super.onDestroy()
 		handler.removeCallbacksAndMessages(null)
+		companionDialog?.dismiss()
+		companionDialog = null
 	}
 
 	// region Konsol listesi
@@ -527,6 +548,99 @@ class MainActivity : AppCompatActivity()
 			.setNeutralButton(R.string.home_about_open_link) { _, _ -> openUrl(url) }
 			.show()
 	}
+
+	// region Telefondan kontrol
+
+	private fun updateCompanionHint()
+	{
+		val url = CompanionServer.url(withToken = false)
+		val text = when
+		{
+			CompanionServer.info == null -> null
+			url == null -> getString(R.string.companion_hint_no_network)
+			CompanionServer.isClientActive -> getString(R.string.companion_hint_connected, url)
+			else -> getString(R.string.companion_hint_ready, url)
+		}
+		binding.companionHintLayout.isVisible = text != null
+		if(text != null && binding.companionHintTextView.text?.toString() != text)
+			binding.companionHintTextView.text = text
+		// Pencere açıkken telefonun bağlanması da yoklanarak gösterilir.
+		if(companionDialog?.isShowing == true)
+			updateCompanionDialog()
+	}
+
+	private fun showCompanion()
+	{
+		if(companionDialog?.isShowing == true)
+			return
+		val dialogBinding = DialogCompanionBinding.inflate(layoutInflater)
+		companionBinding = dialogBinding
+		companionQrUrl = null
+		companionDialog = MaterialAlertDialogBuilder(this)
+			.setView(dialogBinding.root)
+			.setPositiveButton(R.string.companion_dialog_close, null)
+			.setOnDismissListener {
+				companionDialog = null
+				companionBinding = null
+				companionQrUrl = null
+			}
+			.show()
+			.also {
+				// QR (360dp) ve metin yan yana sığsın: TV'de pencere ekranın büyük kısmını kaplar.
+				val width = (resources.displayMetrics.widthPixels * 0.86f).toInt()
+				it.window?.setLayout(width, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+			}
+		// Sunucu onStart'ta başlatıldı; durmuşsa (ör. başlatma hatası) yeniden dene.
+		CompanionServer.acquire(this, CompanionServer.HOLDER_HOME)
+		updateCompanionDialog()
+	}
+
+	private fun updateCompanionDialog()
+	{
+		val b = companionBinding ?: return
+		val info = CompanionServer.info
+		val url = CompanionServer.url(withToken = true)
+		val error = CompanionServer.lastError
+		val ready = info != null && url != null
+
+		b.qrProgressBar.isVisible = info == null && error == null
+		b.codeLayout.isVisible = ready
+		b.manualLabelTextView.isVisible = ready
+		b.wifiTextView.isVisible = true
+
+		if(ready && url != companionQrUrl)
+		{
+			companionQrUrl = url
+			val sizePx = (resources.displayMetrics.density * 344).toInt()
+			val bitmap = QrCode.render(url!!, sizePx)
+			b.qrImageView.setImageDrawable(bitmap?.let {
+				// Filtresiz büyütme: QR modülleri keskin kalır.
+				android.graphics.drawable.BitmapDrawable(resources, it).apply { setFilterBitmap(false) }
+			})
+		}
+		else if(!ready)
+		{
+			companionQrUrl = null
+			b.qrImageView.setImageDrawable(null)
+		}
+
+		b.urlTextView.text = when
+		{
+			ready -> CompanionServer.url(withToken = false)
+			info != null -> getString(R.string.companion_dialog_no_network)
+			error != null -> getString(R.string.companion_dialog_failed, error)
+			else -> getString(R.string.companion_dialog_starting)
+		}
+		b.urlTextView.textSize = if(ready) 20f else 16f
+		b.codeTextView.text = info?.shortCode ?: ""
+
+		val connected = ready && CompanionServer.isClientActive
+		b.statusChip.isVisible = ready
+		b.statusTextView.setText(if(connected) R.string.companion_dialog_connected else R.string.companion_dialog_waiting)
+		setDotColor(b.statusDotImageView, if(connected) R.color.home_ready else R.color.home_offline)
+	}
+
+	// endregion
 
 	private fun openUrl(url: String)
 	{
