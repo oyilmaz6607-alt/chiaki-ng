@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">Chiaki</string>
-    <string name="title_main">Chiaki 千秋</string>
+    <string name="app_name">AltyazıTR Oyun</string>
+    <string name="title_main">AltyazıTR Oyun</string>
     <string name="title_settings">Settings</string>
     <string name="alert_message_standby_wakeup">The Console is currently in standby mode. Do you want to send a Wakeup packet instead of trying to connect immediately?</string>
     <string name="alert_message_session_quit">Session has quit: %s</string>
@@ -121,4 +121,23 @@
     <string name="preferences_fps_key">stream_fps</string>
     <string name="preferences_bitrate_key">stream_bitrate</string>
     <string name="preferences_codec_key">stream_codec</string>
+
+    <!-- Türkçe altyazı çevirisi -->
+    <string name="preferences_category_title_subtitles">Türkçe altyazı</string>
+    <string name="preferences_subtitle_enabled_key">subtitle_translate_enabled</string>
+    <string name="preferences_subtitle_enabled_title">İngilizce altyazıyı Türkçeye çevir</string>
+    <string name="preferences_subtitle_enabled_summary">Oyundaki altyazıyı ekrandan okuyup anında Türkçe gösterir. Oyunun kendi ayarlarından altyazıyı açın.</string>
+    <string name="preferences_subtitle_cover_key">subtitle_cover_original</string>
+    <string name="preferences_subtitle_cover_title">İngilizce altyazının üstüne yaz</string>
+    <string name="preferences_subtitle_cover_summary">Kapalıysa çeviri ekranın altında sabit bir bantta görünür</string>
+    <string name="preferences_subtitle_area_key">subtitle_capture_percent</string>
+    <string name="preferences_subtitle_area_title">Taranan alan (ekranın alt kısmı, %)</string>
+    <string name="preferences_subtitle_speed_key">subtitle_interval_ms</string>
+    <string name="preferences_subtitle_speed_title">Tarama aralığı (ms)</string>
+    <string name="preferences_subtitle_speed_summary">Düşük değer daha hızlı tepki verir ama işlemciyi daha çok yorar</string>
+    <string name="preferences_subtitle_size_key">subtitle_text_size</string>
+    <string name="preferences_subtitle_size_title">Yazı boyutu</string>
+    <string name="stream_subtitles">Türkçe altyazı</string>
+    <string name="subtitle_model_downloading">Türkçe çeviri modeli indiriliyor (yalnızca ilk seferde, ~30 MB)…</string>
+    <string name="subtitle_model_failed">Çeviri modeli indirilemedi. İnternet bağlantısını kontrol edin.</string>
 </resources>

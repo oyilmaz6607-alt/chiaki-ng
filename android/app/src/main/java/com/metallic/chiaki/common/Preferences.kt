@@ -74,6 +74,23 @@ class Preferences(context: Context)
 		get() = sharedPreferences.getBoolean(touchpadOnlyEnabledKey, false)
 		set(value) { sharedPreferences.edit().putBoolean(touchpadOnlyEnabledKey, value).apply() }
 
+	val subtitleEnabledKey get() = resources.getString(R.string.preferences_subtitle_enabled_key)
+	var subtitleEnabled
+		get() = sharedPreferences.getBoolean(subtitleEnabledKey, true)
+		set(value) { sharedPreferences.edit().putBoolean(subtitleEnabledKey, value).apply() }
+
+	val subtitleCoverOriginal
+		get() = sharedPreferences.getBoolean(resources.getString(R.string.preferences_subtitle_cover_key), true)
+
+	val subtitleCapturePercent
+		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_area_key), 35).coerceIn(10, 100)
+
+	val subtitleIntervalMs
+		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_speed_key), 300).coerceIn(150, 1500)
+
+	val subtitleTextSize
+		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_size_key), 26).coerceIn(14, 48)
+
 	val rumbleEnabledKey get() = resources.getString(R.string.preferences_rumble_enabled_key)
 	var rumbleEnabled
 		get() = sharedPreferences.getBoolean(rumbleEnabledKey, true)

@@ -25,10 +25,12 @@ android {
     ndkVersion "28.2.13676358"
 
     defaultConfig {
-        applicationId "com.metallic.chiaki"
+        // Play Store için benzersiz paket adı (istediğiniz gibi değiştirin, yayınlandıktan sonra değişmez)
+        applicationId "com.altyazitr.oyun"
+        manifestPlaceholders = [fileProviderAuthority: "com.altyazitr.oyun.fileprovider"]
         minSdk 24
         targetSdk 35
-        versionCode 12
+        versionCode 1
         versionName chiakiVersion
         externalNativeBuild {
             cmake {
@@ -54,6 +56,7 @@ android {
 
     buildFeatures {
         viewBinding true
+        buildConfig true
         prefab true
     }
 
@@ -131,6 +134,11 @@ dependencies {
     ksp libs.moshi.kotlin.codegen
 
     implementation libs.oboe
+
+    // Türkçe altyazı: cihaz içi OCR ve çeviri (Google ML Kit)
+    implementation libs.mlkit.text.recognition
+    implementation libs.mlkit.translate
+    implementation libs.coroutines.play.services
 
     testImplementation 'junit:junit:4.13.2'
 }

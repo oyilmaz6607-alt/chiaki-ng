@@ -20,6 +20,32 @@
             android:layout_height="wrap_content"/>
     </com.metallic.chiaki.stream.AspectRatioFrameLayout>
 
+    <!-- Türkçe altyazı: konumu SubtitleTranslator tarafından İngilizce altyazının üstüne taşınır -->
+    <TextView
+        android:id="@+id/subtitleText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="48dp"
+        android:layout_marginStart="48dp"
+        android:layout_marginEnd="48dp"
+        android:maxWidth="1200dp"
+        android:gravity="center"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:background="#E6101010"
+        android:textColor="#FFFFFFFF"
+        android:textSize="26sp"
+        android:shadowColor="#FF000000"
+        android:shadowRadius="4"
+        android:shadowDx="1"
+        android:shadowDy="1"
+        android:focusable="false"
+        android:clickable="false"
+        android:visibility="gone"/>
+
     <ProgressBar
         android:id="@+id/progressBar"
         android:layout_width="wrap_content"
@@ -70,6 +96,17 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="200dp"
                 android:text="@string/stream_touchpad_only"
+                android:textColor="@color/stream_text"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:switchPadding="8dp" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/subtitleSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="400dp"
+                android:text="@string/stream_subtitles"
                 android:textColor="@color/stream_text"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintStart_toStartOf="parent"

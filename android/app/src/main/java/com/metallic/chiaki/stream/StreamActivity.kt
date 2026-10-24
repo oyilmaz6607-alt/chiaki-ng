@@ -28,6 +28,7 @@ import com.metallic.chiaki.databinding.ActivityStreamBinding
 import com.metallic.chiaki.lib.ConnectInfo
 import com.metallic.chiaki.lib.ConnectVideoProfile
 import com.metallic.chiaki.session.*
+import com.metallic.chiaki.subtitle.SubtitleTranslator
 import com.metallic.chiaki.touchcontrols.DefaultTouchControlsFragment
 import com.metallic.chiaki.touchcontrols.TouchControlsFragment
 import com.metallic.chiaki.touchcontrols.TouchpadOnlyFragment
@@ -54,6 +55,8 @@ class StreamActivity : AppCompatActivity()
 	private lateinit var insetsController: WindowInsetsControllerCompat
 
 	private val uiVisibilityHandler = Handler(Looper.getMainLooper())
+
+	private var subtitleTranslator: SubtitleTranslator? = null
 
 	override fun onCreate(savedInstanceState: Bundle?)
 	{
@@ -120,6 +123,8 @@ class StreamActivity : AppCompatActivity()
 		viewModel.session.state.observe(this, Observer { this.stateChanged(it) })
 		adjustStreamViewAspect()
 
+		setupSubtitles()
+
 		if(Preferences(this).rumbleEnabled)
 		{
 			val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
@@ -158,11 +163,14 @@ class StreamActivity : AppCompatActivity()
 		super.onResume()
 		hideSystemUI()
 		viewModel.session.resume()
+		if(binding.subtitleSwitch.isChecked)
+			subtitleTranslator?.start()
 	}
 
 	override fun onPause()
 	{
 		super.onPause()
+		subtitleTranslator?.stop()
 		viewModel.session.pause()
 	}
 
@@ -170,6 +178,33 @@ class StreamActivity : AppCompatActivity()
 	{
 		super.onDestroy()
 		controlsJob?.cancel()
+		subtitleTranslator?.release()
+		subtitleTranslator = null
+	}
+
+	private fun setupSubtitles()
+	{
+		val prefs = Preferences(this)
+		binding.subtitleText.textSize = prefs.subtitleTextSize.toFloat()
+		subtitleTranslator = SubtitleTranslator(
+			surfaceView = binding.surfaceView,
+			output = binding.subtitleText,
+			scope = lifecycleScope,
+			config = SubtitleTranslator.Config(
+				captureFraction = prefs.subtitleCapturePercent / 100f,
+				intervalMs = prefs.subtitleIntervalMs.toLong(),
+				coverOriginal = prefs.subtitleCoverOriginal
+			)
+		)
+		binding.subtitleSwitch.isChecked = prefs.subtitleEnabled
+		binding.subtitleSwitch.setOnCheckedChangeListener { _, isChecked ->
+			prefs.subtitleEnabled = isChecked
+			if(isChecked)
+				subtitleTranslator?.start()
+			else
+				subtitleTranslator?.stop()
+			showOverlay()
+		}
 	}
 
 	private fun reconnect()

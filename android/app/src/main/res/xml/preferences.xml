@@ -3,6 +3,49 @@
     xmlns:tools="http://schemas.android.com/tools"
     xmlns:android="http://schemas.android.com/apk/res/android">
     <PreferenceCategory
+        app:key="category_subtitles"
+        app:title="@string/preferences_category_title_subtitles">
+        <SwitchPreference
+            app:key="@string/preferences_subtitle_enabled_key"
+            app:title="@string/preferences_subtitle_enabled_title"
+            app:summary="@string/preferences_subtitle_enabled_summary"
+            app:defaultValue="true" />
+        <SwitchPreference
+            app:key="@string/preferences_subtitle_cover_key"
+            app:title="@string/preferences_subtitle_cover_title"
+            app:summary="@string/preferences_subtitle_cover_summary"
+            app:defaultValue="true"
+            app:dependency="@string/preferences_subtitle_enabled_key" />
+        <SeekBarPreference
+            app:key="@string/preferences_subtitle_area_key"
+            app:title="@string/preferences_subtitle_area_title"
+            app:min="10"
+            android:max="100"
+            app:defaultValue="35"
+            app:showSeekBarValue="true"
+            app:seekBarIncrement="5"
+            app:dependency="@string/preferences_subtitle_enabled_key" />
+        <SeekBarPreference
+            app:key="@string/preferences_subtitle_speed_key"
+            app:title="@string/preferences_subtitle_speed_title"
+            app:summary="@string/preferences_subtitle_speed_summary"
+            app:min="150"
+            android:max="1500"
+            app:defaultValue="300"
+            app:showSeekBarValue="true"
+            app:seekBarIncrement="50"
+            app:dependency="@string/preferences_subtitle_enabled_key" />
+        <SeekBarPreference
+            app:key="@string/preferences_subtitle_size_key"
+            app:title="@string/preferences_subtitle_size_title"
+            app:min="14"
+            android:max="48"
+            app:defaultValue="26"
+            app:showSeekBarValue="true"
+            app:dependency="@string/preferences_subtitle_enabled_key" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
         app:key="category_general"
         app:title="@string/preferences_category_title_general">
         <Preference
