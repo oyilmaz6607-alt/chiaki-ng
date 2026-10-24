@@ -16,10 +16,13 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
         with:
-          submodules: recursive
           fetch-depth: 1
 
       - uses: actions/setup-java@v5
@@ -27,63 +30,53 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - uses: android-actions/setup-android@v3
-
-      - name: Araçlar
+      # Tüm hazırlık + derleme tek adımda; çıktı günlüğe yazılır, hata olursa özeti not olarak eklenir
+      - name: Hazırla ve derle
         run: |
           set -o pipefail
-          mkdir -p "$RUNNER_TEMP/logs"
+          LOG="$RUNNER_TEMP/build.log"
+          summarize() {
+            body=$( (grep -n -i -E "error|failed|what went wrong|exception|not found|cannot|denied" "$LOG" | tail -n 30; echo '--- son satirlar ---'; tail -n 30 "$LOG") | cut -c1-300 )
+            body="${body//'%'/'%25'}"; body="${body//$'\r'/}"; body="${body//$'\n'/'%0A'}"
+            echo "::error title=Derleme hatasi::$body"
+          }
+          trap 'summarize' ERR
+          set -e
           {
-            pip install 'protobuf>=5,<6'
-            sudo apt-get update && sudo apt-get install -y ninja-build
-            yes | sdkmanager --licenses > /dev/null || true
-            sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" "platforms;android-35" "build-tools;35.0.0"
-          } 2>&1 | tee "$RUNNER_TEMP/logs/tools.log"
+            echo "== alt moduller =="
+            git submodule update --init --depth 1 \
+              third-party/nanopb third-party/jerasure third-party/gf-complete \
+              third-party/curl android/app/src/main/cpp/oboe
 
-      - name: İmza anahtarını hazırla
-        if: env.HAS_KEYSTORE == 'true'
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
-          {
-            echo "chiakiKeystore=$RUNNER_TEMP/upload.jks"
-            echo "chiakiKeystorePW=$KEYSTORE_PASSWORD"
-            echo "chiakiKeyAlias=$KEY_ALIAS"
-            echo "chiakiKeyPW=$KEY_PASSWORD"
-          } > android/local.properties
+            echo "== python protobuf =="
+            python3 -m pip install --user --break-system-packages 'protobuf>=5,<6'
 
-      - name: Uygulamayı derle
-        working-directory: android
-        run: |
-          set -o pipefail
-          chmod +x gradlew
-          if [ "$HAS_KEYSTORE" = "true" ]; then
-            TASKS="testDebugUnitTest assembleDebug bundleRelease assembleRelease"
-          else
-            # İmza anahtarı yoksa: TV'de denemek için doğrudan kurulabilen test APK'sı
-            TASKS="testDebugUnitTest assembleDebug"
-          fi
-          ./gradlew --no-daemon $TASKS 2>&1 | tee "$RUNNER_TEMP/logs/gradle.log"
+            echo "== android sdk =="
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            SDKM=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | tail -n 1)
+            echo "sdkmanager: $SDKM"
+            yes | "$SDKM" --licenses > /dev/null || true
+            "$SDKM" "ndk;28.2.13676358" "cmake;3.22.1" "platforms;android-35" "build-tools;35.0.0"
 
-      # Hata olursa: günlüğün önemli satırlarını hata notu olarak ekler (Actions sayfasında görünür)
-      - name: Hata özeti
-        if: failure()
-        run: |
-          for f in "$RUNNER_TEMP"/logs/*.log; do
-            [ -f "$f" ] || continue
-            name=$(basename "$f")
-            body=$( (grep -n -i -E "error|failed|what went wrong|exception|not found|cannot" "$f" | tail -n 25; echo '--- son satırlar ---'; tail -n 25 "$f") | cut -c1-300 )
-            body="${body//'%'/'%25'}"; body="${body//$'\n'/'%0A'}"; body="${body//$'\r'/}"
-            echo "::error title=$name::$body"
-          done
+            if [ "$HAS_KEYSTORE" = "true" ]; then
+              echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+              {
+                echo "chiakiKeystore=$RUNNER_TEMP/upload.jks"
+                echo "chiakiKeystorePW=$KEYSTORE_PASSWORD"
+                echo "chiakiKeyAlias=$KEY_ALIAS"
+                echo "chiakiKeyPW=$KEY_PASSWORD"
+              } > android/local.properties
+              TASKS="testDebugUnitTest assembleDebug bundleRelease assembleRelease"
+            else
+              # İmza anahtarı yoksa: TV'de denemek için doğrudan kurulabilen test APK'sı
+              TASKS="testDebugUnitTest assembleDebug"
+            fi
+
+            echo "== gradle: $TASKS =="
+            cd android
+            chmod +x gradlew
+            ./gradlew --no-daemon --stacktrace $TASKS
+          } 2>&1 | tee "$LOG"
 
       - uses: actions/upload-artifact@v4
         with:
