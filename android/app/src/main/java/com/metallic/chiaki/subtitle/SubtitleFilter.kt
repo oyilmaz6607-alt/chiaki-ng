@@ -154,19 +154,29 @@ object SubtitleFilter
 }
 
 /**
- * Tracks frames over time: a subtitle is only translated once it has been stable for
- * [stableFrames] consecutive frames (avoids translating half-revealed "typewriter" text),
- * and it is hidden after [emptyFramesToHide] frames without a subtitle.
+ * Tracks OCR results over time and decides when to show, update or hide the translation.
+ *
+ * Low-latency defaults: a subtitle is shown on its first confident detection ([stableFrames] = 1).
+ * If a later frame shows different text, or the same text that has grown by at least one word
+ * (typewriter reveal), it is shown again so the caller re-translates it.
+ *
+ * Hiding: a frame without subtitle hides immediately when the caller confirms that the subtitle
+ * region has visibly changed since the subtitle was shown (`regionChanged = true`, from
+ * [FrameChangeDetector]); otherwise (a possible OCR flake on an unchanged picture) it takes
+ * [emptyFramesToHide] consecutive empty frames.
  */
 class SubtitleTracker(
-	private val stableFrames: Int = 2,
-	private val emptyFramesToHide: Int = 3
+	private val stableFrames: Int = 1,
+	private val emptyFramesToHide: Int = 2
 )
 {
 	sealed class Action
 	{
-		/** A new subtitle is ready to be translated and shown. */
-		data class Show(val candidate: SubtitleCandidate): Action()
+		/**
+		 * A new subtitle is ready to be translated and shown. [grown] = the same line revealed further
+		 * (typewriter), so the previous translation may stay visible until the new one is ready.
+		 */
+		data class Show(val candidate: SubtitleCandidate, val grown: Boolean = false): Action()
 		/** The current subtitle is still on screen; only its position may have moved. */
 		data class Keep(val candidate: SubtitleCandidate): Action()
 		/** The subtitle disappeared. */
@@ -180,7 +190,9 @@ class SubtitleTracker(
 	private var shownText: String? = null
 	private var emptyCount = 0
 
-	fun onFrame(candidate: SubtitleCandidate?): Action
+	val isShowing get() = shownText != null
+
+	fun onFrame(candidate: SubtitleCandidate?, regionChanged: Boolean = false): Action
 	{
 		if(candidate == null)
 		{
@@ -189,7 +201,7 @@ class SubtitleTracker(
 			if(shownText == null)
 				return Action.None
 			emptyCount++
-			if(emptyCount >= emptyFramesToHide)
+			if(regionChanged || emptyCount >= emptyFramesToHide)
 			{
 				shownText = null
 				emptyCount = 0
@@ -199,8 +211,17 @@ class SubtitleTracker(
 		}
 		emptyCount = 0
 
-		if(SubtitleFilter.isSameSubtitle(candidate.text, shownText))
-			return Action.Keep(candidate)
+		val shown = shownText
+		if(shown != null && SubtitleFilter.isSameSubtitle(candidate.text, shown))
+		{
+			if(!isGrowth(shown, candidate.text))
+				return Action.Keep(candidate)
+			// Typewriter: the same line got more words -> update right away.
+			shownText = candidate.text
+			pending = null
+			pendingCount = 0
+			return Action.Show(candidate, grown = true)
+		}
 
 		if(SubtitleFilter.isSameSubtitle(candidate.text, pending?.text))
 			pendingCount++
@@ -226,5 +247,19 @@ class SubtitleTracker(
 		pendingCount = 0
 		shownText = null
 		emptyCount = 0
+	}
+
+	companion object
+	{
+		/** Letters/digits only; apostrophes, spaces and punctuation jitter in OCR, so they are ignored. */
+		private fun alnumCount(text: String): Int = text.count { it.isLetterOrDigit() }
+
+		/**
+		 * true when [now] is the same line revealed further (at least [GROWTH_MIN_CHARS] more letters),
+		 * not just OCR jitter on a finished line.
+		 */
+		fun isGrowth(before: String, now: String): Boolean = alnumCount(now) >= alnumCount(before) + GROWTH_MIN_CHARS
+
+		private const val GROWTH_MIN_CHARS = 3
 	}
 }

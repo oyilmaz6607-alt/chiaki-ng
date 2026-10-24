@@ -2,41 +2,99 @@
 
 package com.metallic.chiaki.main
 
-import android.app.ActivityOptions
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.net.Uri
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
-import android.os.Bundle
-import android.view.Menu
-import android.view.MenuItem
-import android.view.View
-import androidx.activity.addCallback
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.Observer
+import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
+import androidx.core.widget.ImageViewCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.metallic.chiaki.BuildConfig
 import com.metallic.chiaki.R
 import com.metallic.chiaki.common.*
-import com.metallic.chiaki.common.ext.putRevealExtra
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.databinding.ActivityMainBinding
+import com.metallic.chiaki.databinding.DialogHomeAboutBinding
+import com.metallic.chiaki.databinding.DialogHomeHelpBinding
+import com.metallic.chiaki.databinding.ItemHomeHelpStepBinding
 import com.metallic.chiaki.lib.ConnectInfo
-import com.metallic.chiaki.lib.DiscoveryHost
 import com.metallic.chiaki.manualconsole.EditManualConsoleActivity
 import com.metallic.chiaki.regist.RegistActivity
 import com.metallic.chiaki.settings.SettingsActivity
 import com.metallic.chiaki.stream.StreamActivity
 import com.metallic.chiaki.subtitle.CaptionService
 
+/**
+ * AltyazıTR: Google TV ana ekranı.
+ * Solda seçili konsolun durum kartı ve tek ana işlem (Altyazıyı Başlat/Durdur),
+ * sağda ikincil işlemler, altta birden fazla konsol varsa seçim sırası.
+ */
 class MainActivity : AppCompatActivity()
 {
-	private lateinit var viewModel: MainViewModel
+	companion object
+	{
+		private const val STATE_REFRESH_MS = 1500L
+		private const val WAKEUP_TIMEOUT_MS = 45_000L
+		private const val STOP_REFRESH_DELAY_MS = 700L
+	}
 
+	private enum class LaunchMode
+	{
+		CAPTION,
+		STREAM
+	}
+
+	private lateinit var viewModel: MainViewModel
 	private lateinit var binding: ActivityMainBinding
-	private var discoveryMenuItem: MenuItem? = null
+	private lateinit var homePrefs: HomePrefs
+	private lateinit var consoleAdapter: HomeConsoleAdapter
+
+	private var consoles: List<HomeConsole> = listOf()
+	private var selectedKey: String? = null
+	/** Kullanıcı bu oturumda elle konsol seçtiyse, hatırlanan konsol gelince seçim değiştirilmez. */
+	private var userSelected = false
+	private val selectedConsole: HomeConsole? get() = consoles.firstOrNull { it.key == selectedKey }
+
+	/** Overlay izni için Ayarlar'a gidildiyse, dönüşte altyazı otomatik başlatılır. */
+	private var pendingCaptionKey: String? = null
+
+	/** Uyandırma paketi gönderilen konsol; hazır olunca seçilen işlem sürdürülür. */
+	private var pendingWakeKey: String? = null
+	private var pendingWakeMode = LaunchMode.CAPTION
+
+	private val handler = Handler(Looper.getMainLooper())
+	private var lastCaptionRunning: Boolean? = null
+
+	private val refreshRunnable = object: Runnable
+	{
+		override fun run()
+		{
+			if(lastCaptionRunning != CaptionService.isRunning)
+				updateHero()
+			handler.postDelayed(this, STATE_REFRESH_MS)
+		}
+	}
+
+	private val wakeTimeoutRunnable = Runnable {
+		if(pendingWakeKey != null)
+		{
+			pendingWakeKey = null
+			MaterialAlertDialogBuilder(this)
+				.setTitle(R.string.home_standby_title)
+				.setMessage(R.string.home_wakeup_timeout)
+				.setPositiveButton(R.string.action_ok, null)
+				.show()
+		}
+	}
 
 	override fun onCreate(savedInstanceState: Bundle?)
 	{
@@ -44,61 +102,40 @@ class MainActivity : AppCompatActivity()
 		binding = ActivityMainBinding.inflate(layoutInflater)
 		setContentView(binding.root)
 
-		title = ""
-		setSupportActionBar(binding.toolbar)
-
-		binding.floatingActionButton.setOnClickListener {
-			expandFloatingActionButton(!binding.floatingActionButton.isExpanded)
-		}
-		binding.floatingActionButtonDialBackground.setOnClickListener {
-			expandFloatingActionButton(false)
-		}
-
-		binding.addManualButton.setOnClickListener { addManualConsole() }
-		binding.addManualLabelButton.setOnClickListener { addManualConsole() }
-
-		binding.registerButton.setOnClickListener { showRegistration() }
-		binding.registerLabelButton.setOnClickListener { showRegistration() }
-
-		setupBackNavigation()
+		homePrefs = HomePrefs(this)
+		selectedKey = homePrefs.lastConsoleKey
 
 		viewModel = ViewModelProvider(this, viewModelFactory { MainViewModel(getDatabase(this), Preferences(this)) })
 			.get(MainViewModel::class.java)
+		// TV'de konsolu bulmanın tek yolu ağ taraması; her zaman açık tutulur.
+		viewModel.discoveryManager.active = true
 
-		val recyclerViewAdapter = DisplayHostRecyclerViewAdapter(this::hostTriggered, this::wakeupHost, this::editHost, this::deleteHost)
-		binding.hostsRecyclerView.adapter = recyclerViewAdapter
-		binding.hostsRecyclerView.layoutManager = LinearLayoutManager(this)
-		viewModel.displayHosts.observe(this, Observer {
-			val top = binding.hostsRecyclerView.computeVerticalScrollOffset() == 0
-			recyclerViewAdapter.hosts = it
-			if(top)
-				binding.hostsRecyclerView.scrollToPosition(0)
-			updateEmptyInfo()
-		})
+		consoleAdapter = HomeConsoleAdapter(this::consoleClicked, this::consoleLongClicked)
+		binding.consolesRecyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+		binding.consolesRecyclerView.adapter = consoleAdapter
+		binding.consolesRecyclerView.itemAnimator = null
+		binding.consolesLabelTextView.text = getString(R.string.home_section_consoles) + "  ·  " + getString(R.string.home_console_long_press_hint)
 
-		viewModel.discoveryActive.observe(this, Observer { active ->
-			discoveryMenuItem?.let { updateDiscoveryMenuItem(it, active) }
-			updateEmptyInfo()
-		})
-	}
-
-	private fun updateEmptyInfo()
-	{
-		if(viewModel.displayHosts.value?.isEmpty() ?: true)
-		{
-			binding.emptyInfoLayout.visibility = View.VISIBLE
-			val discoveryActive = viewModel.discoveryActive.value ?: false
-			binding.emptyInfoImageView.setImageResource(if(discoveryActive) R.drawable.ic_discover_on else R.drawable.ic_discover_off)
-			binding.emptyInfoTextView.setText(if(discoveryActive) R.string.display_hosts_empty_discovery_on_info else R.string.display_hosts_empty_discovery_off_info)
+		listOf(binding.tileRemotePlay, binding.tileSettings, binding.tilePair, binding.tileHelp).forEach {
+			HomeFocus.applyScale(it, 1.03f)
 		}
-		else
-			binding.emptyInfoLayout.visibility = View.GONE
-	}
+		HomeFocus.applyScale(binding.primaryButton, 1.05f)
+		HomeFocus.applyScale(binding.aboutButton, 1.06f)
 
-	private fun expandFloatingActionButton(expand: Boolean)
-	{
-		binding.floatingActionButton.isExpanded = expand
-		binding.floatingActionButton.isActivated = binding.floatingActionButton.isExpanded
+		binding.primaryButton.setOnClickListener { primaryAction() }
+		binding.tileRemotePlay.setOnClickListener { remotePlayAction() }
+		binding.tileSettings.setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
+		binding.tilePair.setOnClickListener { showAddConsole() }
+		binding.tileHelp.setOnClickListener { showHelp() }
+		binding.aboutButton.setOnClickListener { showAbout() }
+
+		viewModel.displayHosts.observe(this) { hosts ->
+			onHostsChanged(hosts)
+		}
+		viewModel.discoveryActive.observe(this) { updateHero() }
+
+		updateHero()
+		binding.primaryButton.requestFocus()
 	}
 
 	override fun onStart()
@@ -107,101 +144,292 @@ class MainActivity : AppCompatActivity()
 		viewModel.discoveryManager.resume()
 	}
 
+	override fun onResume()
+	{
+		super.onResume()
+		updateHero()
+		handler.postDelayed(refreshRunnable, STATE_REFRESH_MS)
+
+		val pendingKey = pendingCaptionKey
+		if(pendingKey != null && CaptionService.canDrawOverlays(this))
+		{
+			pendingCaptionKey = null
+			consoles.firstOrNull { it.key == pendingKey }?.let { console ->
+				connectInfoFor(console)?.let { startCaptionMode(console, it) }
+			}
+		}
+	}
+
+	override fun onPause()
+	{
+		super.onPause()
+		handler.removeCallbacks(refreshRunnable)
+	}
+
 	override fun onStop()
 	{
 		super.onStop()
 		viewModel.discoveryManager.pause()
 	}
 
-	private fun setupBackNavigation()
+	override fun onDestroy()
 	{
-		onBackPressedDispatcher.addCallback(this) {
-			if(binding.floatingActionButton.isExpanded)
-			{
-				expandFloatingActionButton(false)
-			}
-			else
-			{
-				isEnabled = false
-				onBackPressedDispatcher.onBackPressed()
-			}
+		super.onDestroy()
+		handler.removeCallbacksAndMessages(null)
+	}
+
+	// region Konsol listesi
+
+	private fun onHostsChanged(hosts: List<DisplayHost>)
+	{
+		consoles = HomeConsole.merge(hosts)
+
+		hosts.firstOrNull { it is DiscoveredDisplayHost && it.host.isNotEmpty() }?.let {
+			homePrefs.lastDiscoveredHost = it.host
 		}
+
+		val rememberedKey = homePrefs.lastConsoleKey
+		val remembered = consoles.firstOrNull { it.key == rememberedKey }
+			?: homePrefs.lastConsoleHost?.let { host -> consoles.firstOrNull { it.host == host && it.isRegistered } }
+		if(!userSelected && remembered != null)
+			selectedKey = remembered.key
+		else if(selectedConsole == null)
+			selectedKey = (consoles.firstOrNull { it.isRegistered } ?: consoles.firstOrNull())?.key
+
+		consoleAdapter.submitList(consoles)
+		consoleAdapter.selectedKey = selectedKey
+		binding.consolesSection.isVisible = consoles.size > 1
+		updateHero()
+		checkPendingWake()
 	}
 
-	override fun onCreateOptionsMenu(menu: Menu): Boolean
+	private fun consoleClicked(console: HomeConsole)
 	{
-		menuInflater.inflate(R.menu.main, menu)
-		val discoveryItem = menu.findItem(R.id.action_discover)
-		discoveryMenuItem = discoveryItem
-		val discoveryActive = viewModel.discoveryActive.value ?: false
-		updateDiscoveryMenuItem(discoveryItem, discoveryActive)
-		return true
+		selectConsole(console)
+		binding.primaryButton.requestFocus()
 	}
 
-	private fun updateDiscoveryMenuItem(item: MenuItem, active: Boolean)
+	private fun selectConsole(console: HomeConsole)
 	{
-		item.isChecked = active
-		item.setIcon(if(active) R.drawable.ic_discover_on else R.drawable.ic_discover_off)
+		userSelected = true
+		selectedKey = console.key
+		consoleAdapter.selectedKey = console.key
+		homePrefs.rememberConsole(console)
+		updateHero()
 	}
 
-	override fun onOptionsItemSelected(item: MenuItem): Boolean = when(item.itemId)
+	private fun consoleLongClicked(console: HomeConsole)
 	{
-		R.id.action_discover ->
+		val actions = mutableListOf<Pair<String, () -> Unit>>()
+		actions.add(getString(R.string.home_console_option_select) to { consoleClicked(console) })
+		if(console.isRegistered)
+			actions.add(getString(R.string.home_console_option_wakeup) to { wakeupConsole(console) })
+		if(!console.isRegistered)
+			actions.add(getString(R.string.home_action_pair_this) to { openRegist(console) })
+		val manual = console.displayHost as? ManualDisplayHost
+		if(manual != null)
 		{
-			viewModel.discoveryManager.active = !(viewModel.discoveryActive.value ?: false)
-			true
+			actions.add(getString(R.string.home_console_option_edit) to { editManual(manual) })
+			actions.add(getString(R.string.home_console_option_delete) to { confirmDeleteManual(manual) })
 		}
-
-		R.id.action_settings ->
-		{
-			Intent(this, SettingsActivity::class.java).also {
-				startActivity(it)
-			}
-			true
-		}
-
-		else -> super.onOptionsItemSelected(item)
-	}
-
-	private fun addManualConsole()
-	{
-		Intent(this, EditManualConsoleActivity::class.java).also {
-			it.putRevealExtra(binding.addManualButton, binding.rootLayout)
-			startActivity(it, ActivityOptions.makeSceneTransitionAnimation(this).toBundle())
-		}
-	}
-
-	private fun showRegistration()
-	{
-		Intent(this, RegistActivity::class.java).also {
-			it.putRevealExtra(binding.registerButton, binding.rootLayout)
-			startActivity(it, ActivityOptions.makeSceneTransitionAnimation(this).toBundle())
-		}
-	}
-
-	/** AltyazıTR: HDMI üstü altyazı modu mu, klasik Remote Play mi? */
-	private fun chooseMode(connectInfo: ConnectInfo)
-	{
-		val items = mutableListOf(getString(R.string.caption_mode_overlay), getString(R.string.caption_mode_stream))
-		if(CaptionService.isRunning)
-			items.add(getString(R.string.caption_mode_stop))
 		MaterialAlertDialogBuilder(this)
-			.setTitle(R.string.caption_mode_title)
-			.setItems(items.toTypedArray()) { _, which ->
-				when(which)
-				{
-					0 -> startCaptionMode(connectInfo)
-					1 -> Intent(this, StreamActivity::class.java).let {
-						it.putExtra(StreamActivity.EXTRA_CONNECT_INFO, connectInfo)
-						startActivity(it)
-					}
-					2 -> CaptionService.stop(this)
-				}
-			}
+			.setTitle(getString(R.string.home_console_options_title, consoleName(console)))
+			.setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
 			.show()
 	}
 
-	private fun startCaptionMode(connectInfo: ConnectInfo)
+	private fun editManual(host: ManualDisplayHost)
+	{
+		val intent = Intent(this, EditManualConsoleActivity::class.java)
+		intent.putExtra(EditManualConsoleActivity.EXTRA_MANUAL_HOST_ID, host.manualHost.id)
+		startActivity(intent)
+	}
+
+	private fun confirmDeleteManual(host: ManualDisplayHost)
+	{
+		MaterialAlertDialogBuilder(this)
+			.setMessage(getString(R.string.home_console_delete_message, host.manualHost.host))
+			.setPositiveButton(R.string.home_action_delete) { _, _ -> viewModel.deleteManualHost(host.manualHost) }
+			.setNegativeButton(R.string.home_action_keep, null)
+			.show()
+	}
+
+	private fun consoleName(console: HomeConsole) = console.name ?: getString(R.string.home_console_unnamed)
+
+	// endregion
+
+	// region Durum kartı
+
+	private fun updateHero()
+	{
+		val running = CaptionService.isRunning
+		lastCaptionRunning = running
+		val console = selectedConsole
+
+		// Altyazı çipi
+		binding.captionTextView.setText(if(running) R.string.home_caption_running else R.string.home_caption_off)
+		setDotColor(binding.captionDotImageView, if(running) R.color.home_ready else R.color.home_offline)
+
+		if(console == null)
+		{
+			binding.heroLabelTextView.isVisible = false
+			binding.heroNameTextView.setText(R.string.home_empty_title)
+			binding.stateChip.isVisible = false
+			binding.ipChip.isVisible = false
+			binding.captionChip.isVisible = running
+			binding.heroHintTextView.text = if(viewModel.discoveryActive.value == true)
+				getString(R.string.home_empty_searching) + "\n" + getString(R.string.home_empty_body)
+			else
+				getString(R.string.home_empty_body)
+			binding.heroHintTextView.maxLines = 3
+			if(running)
+				setPrimary(R.string.home_action_stop, R.drawable.ic_home_stop, stop = true)
+			else
+				setPrimary(R.string.home_action_pair_first, R.drawable.ic_home_add, stop = false)
+			return
+		}
+
+		binding.heroHintTextView.maxLines = 2
+		binding.heroLabelTextView.isVisible = true
+		binding.heroNameTextView.text = consoleName(console)
+		binding.stateChip.isVisible = true
+		binding.ipChip.isVisible = true
+		binding.captionChip.isVisible = true
+		binding.stateTextView.setText(HomeUi.stateLabel(console))
+		setDotColor(binding.stateDotImageView, HomeUi.stateColor(console))
+		binding.ipTextView.text = if(console.host.isNotEmpty())
+			getString(R.string.home_console_ip, console.host)
+		else
+			getString(R.string.home_console_ip_unknown)
+
+		when
+		{
+			running ->
+			{
+				setPrimary(R.string.home_action_stop, R.drawable.ic_home_stop, stop = true)
+				binding.heroHintTextView.setText(R.string.home_hint_running)
+			}
+			!console.isRegistered ->
+			{
+				setPrimary(R.string.home_action_pair_this, R.drawable.ic_home_add, stop = false)
+				binding.heroHintTextView.setText(R.string.home_hint_unregistered)
+			}
+			else ->
+			{
+				setPrimary(R.string.home_action_start, R.drawable.ic_home_play, stop = false)
+				binding.heroHintTextView.setText(R.string.home_hint_start)
+			}
+		}
+	}
+
+	private fun setPrimary(textRes: Int, iconRes: Int, stop: Boolean)
+	{
+		binding.primaryButton.setText(textRes)
+		binding.primaryButton.setIconResource(iconRes)
+		binding.primaryButton.backgroundTintList =
+			ContextCompat.getColorStateList(this, if(stop) R.color.home_stop_bg else R.color.home_primary_bg)
+	}
+
+	private fun setDotColor(view: android.widget.ImageView, colorRes: Int)
+	{
+		ImageViewCompat.setImageTintList(view, ColorStateList.valueOf(ContextCompat.getColor(this, colorRes)))
+	}
+
+	// endregion
+
+	// region İşlemler
+
+	private fun primaryAction()
+	{
+		if(CaptionService.isRunning)
+		{
+			CaptionService.stop(this)
+			Toast.makeText(this, R.string.home_caption_stopping, Toast.LENGTH_SHORT).show()
+			handler.postDelayed({ updateHero() }, STOP_REFRESH_DELAY_MS)
+			return
+		}
+		val console = selectedConsole
+		if(console == null)
+		{
+			openRegist(null)
+			return
+		}
+		launch(console, LaunchMode.CAPTION)
+	}
+
+	private fun remotePlayAction()
+	{
+		val console = selectedConsole
+		if(console == null)
+		{
+			openRegist(null)
+			return
+		}
+		launch(console, LaunchMode.STREAM)
+	}
+
+	private fun launch(console: HomeConsole, mode: LaunchMode)
+	{
+		if(!console.isRegistered)
+		{
+			Toast.makeText(this, R.string.home_need_registered, Toast.LENGTH_SHORT).show()
+			openRegist(console)
+			return
+		}
+		homePrefs.rememberConsole(console)
+
+		if(console.state == HomeConsole.State.STANDBY)
+		{
+			MaterialAlertDialogBuilder(this)
+				.setTitle(R.string.home_standby_title)
+				.setMessage(R.string.home_standby_message)
+				.setPositiveButton(R.string.home_standby_wake) { _, _ ->
+					pendingWakeKey = console.key
+					pendingWakeMode = mode
+					wakeupConsole(console)
+					Toast.makeText(this, R.string.home_waking_up, Toast.LENGTH_LONG).show()
+					handler.removeCallbacks(wakeTimeoutRunnable)
+					handler.postDelayed(wakeTimeoutRunnable, WAKEUP_TIMEOUT_MS)
+				}
+				.setNeutralButton(R.string.home_standby_connect_anyway) { _, _ -> proceed(console, mode) }
+				.setNegativeButton(R.string.home_standby_cancel, null)
+				.show()
+			return
+		}
+		proceed(console, mode)
+	}
+
+	private fun checkPendingWake()
+	{
+		val key = pendingWakeKey ?: return
+		val console = consoles.firstOrNull { it.key == key } ?: return
+		if(console.state != HomeConsole.State.READY)
+			return
+		pendingWakeKey = null
+		handler.removeCallbacks(wakeTimeoutRunnable)
+		proceed(console, pendingWakeMode)
+	}
+
+	private fun proceed(console: HomeConsole, mode: LaunchMode)
+	{
+		val connectInfo = connectInfoFor(console) ?: return
+		when(mode)
+		{
+			LaunchMode.CAPTION -> startCaptionMode(console, connectInfo)
+			LaunchMode.STREAM -> Intent(this, StreamActivity::class.java).let {
+				it.putExtra(StreamActivity.EXTRA_CONNECT_INFO, connectInfo)
+				startActivity(it)
+			}
+		}
+	}
+
+	private fun connectInfoFor(console: HomeConsole): ConnectInfo?
+	{
+		val registeredHost = console.displayHost.registeredHost ?: return null
+		return ConnectInfo(console.isPS5, console.host, registeredHost.rpRegistKey, registeredHost.rpKey, Preferences(this).videoProfile)
+	}
+
+	private fun startCaptionMode(console: HomeConsole, connectInfo: ConnectInfo)
 	{
 		if(!CaptionService.canDrawOverlays(this))
 		{
@@ -210,10 +438,12 @@ class MainActivity : AppCompatActivity()
 				.setPositiveButton(R.string.action_ok) { _, _ ->
 					try
 					{
+						pendingCaptionKey = console.key
 						startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
 					}
 					catch(e: ActivityNotFoundException)
 					{
+						pendingCaptionKey = null
 						MaterialAlertDialogBuilder(this)
 							.setMessage(R.string.caption_overlay_permission_missing)
 							.setPositiveButton(R.string.action_ok, null)
@@ -230,72 +460,85 @@ class MainActivity : AppCompatActivity()
 		moveTaskToBack(true)
 	}
 
-	private fun hostTriggered(host: DisplayHost)
+	private fun wakeupConsole(console: HomeConsole)
 	{
-		val registeredHost = host.registeredHost
-		if(registeredHost != null)
-		{
-			fun connect() {
-				val connectInfo = ConnectInfo(host.isPS5, host.host, registeredHost.rpRegistKey, registeredHost.rpKey, Preferences(this).videoProfile)
-				chooseMode(connectInfo)
-			}
+		val registeredHost = console.displayHost.registeredHost ?: return
+		viewModel.discoveryManager.sendWakeup(console.host, registeredHost.rpRegistKey, registeredHost.target.isPS5)
+	}
 
-			if(host is DiscoveredDisplayHost && host.discoveredHost.state == DiscoveryHost.State.STANDBY)
+	private fun openRegist(console: HomeConsole?)
+	{
+		Intent(this, RegistActivity::class.java).let {
+			if(console != null && console.host.isNotEmpty())
 			{
-				MaterialAlertDialogBuilder(this)
-					.setMessage(R.string.alert_message_standby_wakeup)
-					.setPositiveButton(R.string.action_wakeup) { _, _ ->
-						wakeupHost(host)
-					}
-					.setNeutralButton(R.string.action_connect_immediately) { _, _ ->
-						connect()
-					}
-					.setNegativeButton(R.string.action_connect_cancel_connect) { _, _ -> }
-					.create()
-					.show()
-			}
-			else
-				connect()
-		}
-		else
-		{
-			Intent(this, RegistActivity::class.java).let {
-				it.putExtra(RegistActivity.EXTRA_HOST, host.host)
+				it.putExtra(RegistActivity.EXTRA_HOST, console.host)
 				it.putExtra(RegistActivity.EXTRA_BROADCAST, false)
-				if(host is ManualDisplayHost)
-					it.putExtra(RegistActivity.EXTRA_ASSIGN_MANUAL_HOST_ID, host.manualHost.id)
-				startActivity(it)
+				val manual = console.displayHost as? ManualDisplayHost
+				if(manual != null)
+					it.putExtra(RegistActivity.EXTRA_ASSIGN_MANUAL_HOST_ID, manual.manualHost.id)
 			}
-		}
-	}
-
-	private fun wakeupHost(host: DisplayHost)
-	{
-		val registeredHost = host.registeredHost ?: return
-		viewModel.discoveryManager.sendWakeup(host.host, registeredHost.rpRegistKey, registeredHost.target.isPS5)
-	}
-
-	private fun editHost(host: DisplayHost)
-	{
-		if(host !is ManualDisplayHost)
-			return
-		Intent(this, EditManualConsoleActivity::class.java).also {
-			it.putExtra(EditManualConsoleActivity.EXTRA_MANUAL_HOST_ID, host.manualHost.id)
 			startActivity(it)
 		}
 	}
 
-	private fun deleteHost(host: DisplayHost)
+	private fun showAddConsole()
 	{
-		if(host !is ManualDisplayHost)
-			return
+		val selected = selectedConsole
 		MaterialAlertDialogBuilder(this)
-			.setMessage(getString(R.string.alert_message_delete_manual_host, host.manualHost.host))
-			.setPositiveButton(R.string.action_delete) { _, _ ->
-				viewModel.deleteManualHost(host.manualHost)
+			.setTitle(R.string.home_add_title)
+			.setItems(arrayOf(getString(R.string.home_add_pair), getString(R.string.home_add_manual))) { _, which ->
+				when(which)
+				{
+					0 -> openRegist(selected?.takeIf { !it.isRegistered })
+					1 -> startActivity(Intent(this, EditManualConsoleActivity::class.java))
+				}
 			}
-			.setNegativeButton(R.string.action_keep) { _, _ -> }
-			.create()
 			.show()
 	}
+
+	private fun showHelp()
+	{
+		val helpBinding = DialogHomeHelpBinding.inflate(layoutInflater)
+		bindStep(helpBinding.step1, 1, R.string.home_help_step1_title, R.string.home_help_step1_body)
+		bindStep(helpBinding.step2, 2, R.string.home_help_step2_title, R.string.home_help_step2_body)
+		bindStep(helpBinding.step3, 3, R.string.home_help_step3_title, R.string.home_help_step3_body)
+		bindStep(helpBinding.step4, 4, R.string.home_help_step4_title, R.string.home_help_step4_body)
+		MaterialAlertDialogBuilder(this)
+			.setView(helpBinding.root)
+			.setPositiveButton(R.string.home_help_close, null)
+			.show()
+	}
+
+	private fun bindStep(step: ItemHomeHelpStepBinding, number: Int, titleRes: Int, bodyRes: Int)
+	{
+		step.numberTextView.text = number.toString()
+		step.titleTextView.setText(titleRes)
+		step.bodyTextView.setText(bodyRes)
+	}
+
+	private fun showAbout()
+	{
+		val aboutBinding = DialogHomeAboutBinding.inflate(layoutInflater)
+		aboutBinding.versionTextView.text = getString(R.string.home_about_version, BuildConfig.VERSION_NAME)
+		val url = getString(R.string.home_about_source_url)
+		MaterialAlertDialogBuilder(this)
+			.setView(aboutBinding.root)
+			.setPositiveButton(R.string.home_about_close, null)
+			.setNeutralButton(R.string.home_about_open_link) { _, _ -> openUrl(url) }
+			.show()
+	}
+
+	private fun openUrl(url: String)
+	{
+		try
+		{
+			startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+		}
+		catch(e: ActivityNotFoundException)
+		{
+			Toast.makeText(this, getString(R.string.home_about_no_browser, url), Toast.LENGTH_LONG).show()
+		}
+	}
+
+	// endregion
 }

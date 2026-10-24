@@ -185,7 +185,7 @@ class StreamActivity : AppCompatActivity()
 	private fun setupSubtitles()
 	{
 		val prefs = Preferences(this)
-		binding.subtitleText.textSize = prefs.subtitleTextSize.toFloat()
+		com.metallic.chiaki.subtitle.CaptionStyle.load(this).applyTo(binding.subtitleText)
 		subtitleTranslator = SubtitleTranslator(
 			surfaceView = binding.surfaceView,
 			output = binding.subtitleText,

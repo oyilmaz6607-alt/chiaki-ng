@@ -1,167 +1,367 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout
-    android:id="@+id/rootLayout"
+<!-- AltyazıTR: Google TV ana ekranı. Kenarlar TV güvenli alanı için 48dp / 27dp. -->
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:clipChildren="false">
+    android:orientation="vertical"
+    android:paddingStart="48dp"
+    android:paddingEnd="48dp"
+    android:paddingTop="27dp"
+    android:paddingBottom="27dp"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    tools:context="com.metallic.chiaki.main.MainActivity">
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/hostsRecyclerView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:paddingBottom="96dp"
-        android:clipToPadding="false"
-        android:clipChildren="false"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior"/>
-
+    <!-- Üst çubuk: logo, ad, slogan, Hakkında -->
     <LinearLayout
-        android:id="@+id/emptyInfoLayout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:orientation="vertical"
-        android:gravity="center_horizontal">
-        <ImageView
-            android:id="@+id/emptyInfoImageView"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:src="@drawable/ic_discover_off"
-            app:layout_constraintLeft_toLeftOf="parent"
-            app:layout_constraintRight_toRightOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toTopOf="@id/emptyInfoTextView"
-            app:layout_constraintVertical_chainStyle="packed"
-            android:alpha="0.5"/>
-
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/emptyInfoTextView"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:fontFamily="sans-serif-condensed"
-            android:text="@string/display_hosts_empty_discovery_off_info"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintLeft_toLeftOf="parent"
-            app:layout_constraintRight_toRightOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/emptyInfoImageView"
-            android:gravity="center_horizontal"
-            android:maxWidth="300dp"/>
-    </LinearLayout>
-
-    <FrameLayout
-        android:id="@+id/floatingActionButtonDialBackground"
+        android:id="@+id/topBar"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#44000000"
-        android:visibility="gone"
-        android:clickable="true"
-        app:layout_behavior="com.metallic.chiaki.main.FloatingActionButtonBackgroundBehavior"/>
-
-    <LinearLayout
-        android:id="@+id/floatingActionButtonDial"
-        android:layout_gravity="top|end"
-        android:visibility="invisible"
-        app:layout_anchor="@id/floatingActionButton"
-        app:layout_anchorGravity="top|end"
-        android:orientation="vertical"
-        android:layout_marginRight="20dp"
         android:layout_height="wrap_content"
-        android:layout_width="wrap_content"
-        app:layout_behavior="com.metallic.chiaki.main.FloatingActionButtonSpeedDialBehavior"
-        android:gravity="right"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
         android:clipChildren="false">
 
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/registerLabelButton"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="16dp"
-                android:text="@string/action_register"
-                android:textStyle="bold"
-                app:rippleColor="@color/floating_action_button_speed_dial_tint"
-                app:cornerRadius="8dp" />
-
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                android:id="@+id/registerButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:src="@drawable/ic_register"
-                app:fabSize="mini"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial" />
-        </LinearLayout>
+        <ImageView
+            android:id="@+id/logoImageView"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_altyazi_mark"
+            android:contentDescription="@string/home_content_logo" />
 
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="16dp">
+            android:layout_weight="1"
+            android:layout_marginStart="16dp"
+            android:orientation="vertical">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/addManualLabelButton"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+            <TextView
+                android:id="@+id/brandTextView"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="16dp"
-                android:text="@string/action_add_manual"
+                android:text="@string/home_brand_name"
+                android:textColor="@color/home_text"
+                android:textSize="26sp"
                 android:textStyle="bold"
-                app:rippleColor="@color/floating_action_button_speed_dial_tint"
-                app:cornerRadius="8dp" />
+                android:fontFamily="sans-serif"
+                android:includeFontPadding="false" />
 
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                android:id="@+id/addManualButton"
+            <TextView
+                android:id="@+id/taglineTextView"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:src="@drawable/ic_add"
-                app:fabSize="mini"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial" />
+                android:layout_marginTop="4dp"
+                android:text="@string/home_tagline"
+                android:textColor="@color/home_text_muted"
+                android:textSize="15sp" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/aboutButton"
+            style="@style/Home.Pill"
+            android:text="@string/home_about"
+            android:nextFocusDown="@+id/tileRemotePlay" />
     </LinearLayout>
 
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/floatingActionButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        app:srcCompat="@drawable/selector_add_fab"
-        android:layout_margin="16dp"
-        android:layout_gravity="bottom|end"
-        app:fabSize="normal" />
+    <!-- Orta alan: durum kartı + kutucuklar -->
+    <LinearLayout
+        android:id="@+id/mainArea"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="20dp"
+        android:orientation="horizontal"
+        android:clipChildren="false"
+        android:clipToPadding="false">
 
+        <!-- Durum kartı -->
+        <LinearLayout
+            android:id="@+id/heroCard"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.45"
+            android:orientation="vertical"
+            android:background="@drawable/bg_home_hero"
+            android:paddingStart="32dp"
+            android:paddingEnd="32dp"
+            android:paddingTop="22dp"
+            android:paddingBottom="22dp"
+            android:clipChildren="false"
+            android:clipToPadding="false">
 
-    <com.google.android.material.appbar.AppBarLayout
-        android:id="@+id/appBarLayout"
-        android:layout_height="wrap_content"
-        android:layout_width="match_parent">
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_height="wrap_content"
-            android:layout_width="match_parent"
-            android:background="?attr/colorPrimarySurface"
-            app:layout_scrollFlags="scroll|enterAlways"
-            android:theme="@style/AppTheme.Toolbar">
+            <TextView
+                android:id="@+id/heroLabelTextView"
+                style="@style/Home.SectionLabel"
+                android:text="@string/home_section_selected" />
 
-            <androidx.appcompat.widget.AppCompatTextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:fontFamily="sans-serif-condensed"
-                android:text="@string/title_main"
-                android:textColor="?attr/colorOnPrimary"
-                android:textSize="20dp" />
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-        </com.google.android.material.appbar.MaterialToolbar>
-    </com.google.android.material.appbar.AppBarLayout>
+                <ImageView
+                    android:id="@+id/heroIconImageView"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="14dp"
+                    android:src="@drawable/ic_home_console"
+                    android:importantForAccessibility="no"
+                    app:tint="@color/home_accent" />
 
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+                <TextView
+                    android:id="@+id/heroNameTextView"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@color/home_text"
+                    android:textSize="32sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    tools:text="PS5-123" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/heroChipsLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/stateChip"
+                    style="@style/Home.Chip">
+
+                    <ImageView
+                        android:id="@+id/stateDotImageView"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:src="@drawable/bg_home_dot"
+                        android:importantForAccessibility="no"
+                        app:tint="@color/home_ready" />
+
+                    <TextView
+                        android:id="@+id/stateTextView"
+                        style="@style/Home.ChipText"
+                        tools:text="Hazır" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/ipChip"
+                    style="@style/Home.Chip"
+                    android:layout_marginStart="10dp">
+
+                    <TextView
+                        android:id="@+id/ipTextView"
+                        style="@style/Home.ChipText"
+                        android:layout_marginStart="2dp"
+                        android:textColor="@color/home_text_muted"
+                        tools:text="IP: 192.168.1.20" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/captionChip"
+                    style="@style/Home.Chip"
+                    android:layout_marginStart="10dp">
+
+                    <ImageView
+                        android:id="@+id/captionDotImageView"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:src="@drawable/bg_home_dot"
+                        android:importantForAccessibility="no"
+                        app:tint="@color/home_offline" />
+
+                    <TextView
+                        android:id="@+id/captionTextView"
+                        style="@style/Home.ChipText"
+                        tools:text="Altyazı kapalı" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <Space
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/heroHintTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:textColor="@color/home_text_muted"
+                android:textSize="15sp"
+                android:maxLines="2"
+                android:ellipsize="end"
+                tools:text="@string/home_hint_start" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/primaryButton"
+                style="@style/Home.PrimaryButton"
+                android:layout_width="wrap_content"
+                android:minWidth="340dp"
+                android:paddingStart="32dp"
+                android:paddingEnd="32dp"
+                android:nextFocusRight="@+id/tileRemotePlay"
+                android:nextFocusUp="@id/aboutButton"
+                app:icon="@drawable/ic_home_play"
+                tools:text="@string/home_action_start">
+
+                <requestFocus />
+            </com.google.android.material.button.MaterialButton>
+        </LinearLayout>
+
+        <!-- İkincil işlemler -->
+        <LinearLayout
+            android:id="@+id/tilesLayout"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="24dp"
+            android:orientation="vertical"
+            android:clipChildren="false"
+            android:clipToPadding="false">
+
+            <LinearLayout
+                android:id="@+id/tileRemotePlay"
+                style="@style/Home.Tile"
+                android:nextFocusLeft="@id/primaryButton">
+
+                <ImageView
+                    style="@style/Home.TileIcon"
+                    android:src="@drawable/ic_home_tv" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/Home.TileTitle"
+                        android:text="@string/home_tile_remote_play" />
+
+                    <TextView
+                        style="@style/Home.TileSubtitle"
+                        android:text="@string/home_tile_remote_play_sub" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tileSettings"
+                style="@style/Home.Tile"
+                android:layout_marginTop="12dp"
+                android:nextFocusLeft="@id/primaryButton">
+
+                <ImageView
+                    style="@style/Home.TileIcon"
+                    android:src="@drawable/ic_home_tune" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/Home.TileTitle"
+                        android:text="@string/home_tile_settings" />
+
+                    <TextView
+                        style="@style/Home.TileSubtitle"
+                        android:text="@string/home_tile_settings_sub" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tilePair"
+                style="@style/Home.Tile"
+                android:layout_marginTop="12dp"
+                android:nextFocusLeft="@id/primaryButton">
+
+                <ImageView
+                    style="@style/Home.TileIcon"
+                    android:src="@drawable/ic_home_add" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/Home.TileTitle"
+                        android:text="@string/home_tile_pair" />
+
+                    <TextView
+                        style="@style/Home.TileSubtitle"
+                        android:text="@string/home_tile_pair_sub" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tileHelp"
+                style="@style/Home.Tile"
+                android:layout_marginTop="12dp"
+                android:nextFocusLeft="@id/primaryButton">
+
+                <ImageView
+                    style="@style/Home.TileIcon"
+                    android:src="@drawable/ic_home_help" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/Home.TileTitle"
+                        android:text="@string/home_tile_help" />
+
+                    <TextView
+                        style="@style/Home.TileSubtitle"
+                        android:text="@string/home_tile_help_sub" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Birden fazla konsol varsa seçim sırası -->
+    <LinearLayout
+        android:id="@+id/consolesSection"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:orientation="vertical"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <TextView
+            android:id="@+id/consolesLabelTextView"
+            style="@style/Home.SectionLabel"
+            android:text="@string/home_section_consoles" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/consolesRecyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="84dp"
+            android:layout_marginTop="2dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal"
+            android:descendantFocusability="afterDescendants"
+            app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+            tools:listitem="@layout/item_home_console" />
+    </LinearLayout>
+</LinearLayout>

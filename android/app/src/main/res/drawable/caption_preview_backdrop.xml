@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Altyazı önizlemesi için oyun sahnesini andıran koyu arka plan (gece gökyüzü, ufuk ışığı, zemin). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:startColor="#FF0B1424"
+                android:centerColor="#FF35425A"
+                android:endColor="#FF0E0C0A"
+                android:centerY="0.55"
+                android:type="linear" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="520"
+                android:centerX="0.72"
+                android:centerY="0.55"
+                android:startColor="#66E39B4C"
+                android:endColor="#00E39B4C" />
+        </shape>
+    </item>
+    <item android:gravity="bottom" android:height="56dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:startColor="#00000000"
+                android:endColor="#CC000000" />
+        </shape>
+    </item>
+</layer-list>

@@ -17,6 +17,7 @@ import com.metallic.chiaki.common.exportAndShareAllSettings
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.getDatabase
 import com.metallic.chiaki.common.importSettingsFromUri
+import com.metallic.chiaki.subtitle.CaptionPreviewPreference
 
 class DataStore(val preferences: Preferences): PreferenceDataStore()
 {
@@ -27,7 +28,7 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.rumbleEnabledKey -> preferences.rumbleEnabled
 		preferences.motionEnabledKey -> preferences.motionEnabled
 		preferences.buttonHapticEnabledKey -> preferences.buttonHapticEnabled
-		else -> defValue
+		else -> preferences.sharedPreferences.getBoolean(key, defValue)
 	}
 
 	override fun putBoolean(key: String?, value: Boolean)
@@ -39,7 +40,16 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 			preferences.rumbleEnabledKey -> preferences.rumbleEnabled = value
 			preferences.motionEnabledKey -> preferences.motionEnabled = value
 			preferences.buttonHapticEnabledKey -> preferences.buttonHapticEnabled = value
+			else -> preferences.sharedPreferences.edit().putBoolean(key, value).apply()
 		}
+	}
+
+	// Altyazı ayarları (SeekBar/List) gibi özel karşılığı olmayan anahtarlar doğrudan SharedPreferences'a yazılır.
+	override fun getInt(key: String?, defValue: Int) = preferences.sharedPreferences.getInt(key, defValue)
+
+	override fun putInt(key: String?, value: Int)
+	{
+		preferences.sharedPreferences.edit().putInt(key, value).apply()
 	}
 
 	override fun getString(key: String, defValue: String?) = when(key)
@@ -48,7 +58,7 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.fpsKey -> preferences.fps.value
 		preferences.bitrateKey -> preferences.bitrate?.toString() ?: ""
 		preferences.codecKey -> preferences.codec.value
-		else -> defValue
+		else -> preferences.sharedPreferences.getString(key, defValue)
 	}
 
 	override fun putString(key: String, value: String?)
@@ -71,6 +81,7 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 				val codec = Preferences.Codec.values().firstOrNull { it.value == value } ?: return
 				preferences.codec = codec
 			}
+			else -> preferences.sharedPreferences.edit().putString(key, value).apply()
 		}
 	}
 }
@@ -134,6 +145,13 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 	}
 
 	override fun getTitle(resources: Resources): String = resources.getString(R.string.title_settings)
+
+	override fun onResume()
+	{
+		super.onResume()
+		// Altyazı görünümü alt ekranından dönünce önizlemeyi tazele.
+		preferenceScreen?.findPreference<CaptionPreviewPreference>("subtitle_caption_preview")?.refresh()
+	}
 
 	private fun exportSettings()
 	{

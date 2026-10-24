@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Altyazı görünümü alt ekranı. Varsayılanlar CaptionStyle.DEFAULT_* ile aynı olmalı.
+     Konum (subtitle_caption_position) için bilinçli olarak defaultValue yok: kaydedilmemişse
+     eski subtitle_cover_original anahtarından türetilir (CaptionAppearanceFragment). -->
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <PreferenceCategory
+        app:key="category_caption_text"
+        app:title="@string/preferences_caption_category_text"
+        app:iconSpaceReserved="false">
+        <ListPreference
+            app:key="@string/preferences_caption_font_key"
+            app:title="@string/preferences_caption_font_title"
+            app:entries="@array/caption_font_entries"
+            app:entryValues="@array/caption_font_values"
+            app:defaultValue="inter"
+            app:useSimpleSummaryProvider="true"
+            app:iconSpaceReserved="false" />
+        <SeekBarPreference
+            app:key="@string/preferences_subtitle_size_key"
+            app:title="@string/preferences_subtitle_size_title"
+            app:min="14"
+            android:max="56"
+            app:defaultValue="30"
+            app:showSeekBarValue="true"
+            app:updatesContinuously="true"
+            app:seekBarIncrement="2"
+            app:iconSpaceReserved="false" />
+        <SwitchPreference
+            app:key="@string/preferences_caption_bold_key"
+            app:title="@string/preferences_caption_bold_title"
+            app:summary="@string/preferences_caption_bold_summary"
+            app:defaultValue="true"
+            app:iconSpaceReserved="false" />
+        <ListPreference
+            app:key="@string/preferences_caption_text_color_key"
+            app:title="@string/preferences_caption_text_color_title"
+            app:entries="@array/caption_text_color_entries"
+            app:entryValues="@array/caption_text_color_values"
+            app:defaultValue="#FFFFFF"
+            app:useSimpleSummaryProvider="true"
+            app:iconSpaceReserved="false" />
+        <ListPreference
+            app:key="@string/preferences_caption_shadow_key"
+            app:title="@string/preferences_caption_shadow_title"
+            app:entries="@array/caption_shadow_entries"
+            app:entryValues="@array/caption_shadow_values"
+            app:defaultValue="soft"
+            app:useSimpleSummaryProvider="true"
+            app:iconSpaceReserved="false" />
+        <ListPreference
+            app:key="@string/preferences_caption_line_spacing_key"
+            app:title="@string/preferences_caption_line_spacing_title"
+            app:entries="@array/caption_line_spacing_entries"
+            app:entryValues="@array/caption_line_spacing_values"
+            app:defaultValue="1.1"
+            app:useSimpleSummaryProvider="true"
+            app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:key="category_caption_background"
+        app:title="@string/preferences_caption_category_background"
+        app:iconSpaceReserved="false">
+        <ListPreference
+            app:key="@string/preferences_caption_bg_color_key"
+            app:title="@string/preferences_caption_bg_color_title"
+            app:entries="@array/caption_bg_color_entries"
+            app:entryValues="@array/caption_bg_color_values"
+            app:defaultValue="#000000"
+            app:useSimpleSummaryProvider="true"
+            app:iconSpaceReserved="false" />
+        <SeekBarPreference
+            app:key="@string/preferences_caption_bg_opacity_key"
+            app:title="@string/preferences_caption_bg_opacity_title"
+            app:summary="@string/preferences_caption_bg_opacity_summary"
+            app:min="0"
+            android:max="100"
+            app:defaultValue="75"
+            app:showSeekBarValue="true"
+            app:updatesContinuously="true"
+            app:seekBarIncrement="5"
+            app:iconSpaceReserved="false" />
+        <SeekBarPreference
+            app:key="@string/preferences_caption_corner_radius_key"
+            app:title="@string/preferences_caption_corner_radius_title"
+            app:min="0"
+            android:max="24"
+            app:defaultValue="8"
+            app:showSeekBarValue="true"
+            app:updatesContinuously="true"
+            app:seekBarIncrement="2"
+            app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:key="category_caption_layout"
+        app:title="@string/preferences_caption_category_layout"
+        app:iconSpaceReserved="false">
+        <ListPreference
+            app:key="@string/preferences_caption_position_key"
+            app:title="@string/preferences_caption_position_title"
+            app:entries="@array/caption_position_entries"
+            app:entryValues="@array/caption_position_values"
+            app:useSimpleSummaryProvider="true"
+            app:iconSpaceReserved="false" />
+        <SeekBarPreference
+            app:key="@string/preferences_caption_max_width_key"
+            app:title="@string/preferences_caption_max_width_title"
+            app:min="50"
+            android:max="100"
+            app:defaultValue="80"
+            app:showSeekBarValue="true"
+            app:updatesContinuously="true"
+            app:seekBarIncrement="5"
+            app:iconSpaceReserved="false" />
+        <Preference
+            app:key="@string/preferences_caption_reset_key"
+            app:title="@string/preferences_caption_reset_title"
+            app:summary="@string/preferences_caption_reset_summary"
+            app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+</PreferenceScreen>

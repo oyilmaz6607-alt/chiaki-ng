@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AltyazıTR: TV ana ekranı, eşleştirme ipuçları, yardım ve hakkında metinleri -->
+<resources>
+    <string name="home_brand_name">AltyazıTR Oyun</string>
+    <string name="home_tagline">Sen oyna, altyazılar Türkçe aksın.</string>
+    <string name="home_content_logo">AltyazıTR logosu</string>
+
+    <!-- Durum kartı -->
+    <string name="home_section_selected">SEÇİLİ KONSOL</string>
+    <string name="home_section_consoles">KONSOLLARIN</string>
+    <string name="home_console_unnamed">Konsol</string>
+    <string name="home_console_ip">IP: %1$s</string>
+    <string name="home_console_ip_unknown">IP adresi bilinmiyor</string>
+    <string name="home_state_ready">Hazır</string>
+    <string name="home_state_standby">Uykuda</string>
+    <string name="home_state_unregistered">Kayıtlı değil</string>
+    <string name="home_state_offline">Ağda görünmüyor</string>
+    <string name="home_caption_running">Altyazı çalışıyor</string>
+    <string name="home_caption_off">Altyazı kapalı</string>
+    <string name="home_selected_badge">Seçili</string>
+
+    <!-- Ana düğme -->
+    <string name="home_action_start">Altyazıyı Başlat</string>
+    <string name="home_action_stop">Altyazıyı Durdur</string>
+    <string name="home_action_pair_this">Bu konsolu eşleştir</string>
+    <string name="home_action_pair_first">Konsolu eşleştir</string>
+    <string name="home_hint_start">Başlattıktan sonra TV girişini PS5\'in HDMI girişine geçirin.</string>
+    <string name="home_hint_running">Altyazı arka planda çalışıyor. HDMI girişine geçip oynayabilirsiniz.</string>
+    <string name="home_hint_unregistered">Altyazı için bu konsolu bir kez eşleştirmeniz gerekiyor.</string>
+
+    <!-- Boş durum -->
+    <string name="home_empty_title">Henüz konsol yok</string>
+    <string name="home_empty_searching">Ağda konsol aranıyor… PS5 açık ve TV ile aynı ağda olmalı.</string>
+    <string name="home_empty_body">PS5\'te Remote Play\'i açın, sonra konsolu bir kez eşleştirin.</string>
+
+    <!-- İkincil kutucuklar -->
+    <string name="home_tile_remote_play">Remote Play ile oyna</string>
+    <string name="home_tile_remote_play_sub">Oyunu bu TV\'de aç</string>
+    <string name="home_tile_settings">Görünüm ve ayarlar</string>
+    <string name="home_tile_settings_sub">Yazı boyutu, konum, kalite</string>
+    <string name="home_tile_pair">Konsol ekle / eşleştir</string>
+    <string name="home_tile_pair_sub">PIN ile eşleştir veya IP gir</string>
+    <string name="home_tile_help">Nasıl kullanılır?</string>
+    <string name="home_tile_help_sub">4 adımda kurulum</string>
+    <string name="home_about">Hakkında</string>
+
+    <!-- Konsol ekle seçenekleri -->
+    <string name="home_add_title">Konsol ekle</string>
+    <string name="home_add_pair">PIN ile eşleştir (önerilen)</string>
+    <string name="home_add_manual">IP adresiyle elle ekle</string>
+
+    <!-- Konsol kartı seçenekleri (uzun bas) -->
+    <string name="home_console_options_title">%1$s</string>
+    <string name="home_console_option_select">Bu konsolu seç</string>
+    <string name="home_console_option_wakeup">Uyandır</string>
+    <string name="home_console_option_edit">Düzenle</string>
+    <string name="home_console_option_delete">Kaldır</string>
+    <string name="home_console_delete_message">%1$s adresli konsol listeden kaldırılsın mı? (Eşleştirme kayıtları Ayarlar\'dan silinir.)</string>
+    <string name="home_action_delete">Kaldır</string>
+    <string name="home_action_keep">Vazgeç</string>
+    <string name="home_console_long_press_hint">Seçenekler için basılı tutun</string>
+
+    <!-- Uyku modu -->
+    <string name="home_standby_title">Konsol uykuda</string>
+    <string name="home_standby_message">PS5 dinlenme modunda görünüyor. Uyandırılsın mı? Konsol hazır olunca otomatik devam edilir.</string>
+    <string name="home_standby_wake">Uyandır ve devam et</string>
+    <string name="home_standby_connect_anyway">Yine de bağlan</string>
+    <string name="home_standby_cancel">İptal</string>
+    <string name="home_waking_up">Konsol uyandırılıyor… Hazır olduğunda devam edilecek.</string>
+    <string name="home_wakeup_timeout">Konsol uyanmadı. PS5\'te Ayarlar → Sistem → Güç Tasarrufu → Dinlenme Modunda Kullanılabilen Özellikler bölümünden \"İnternete bağlı kal\" ve \"Ağ üzerinden PS5\'i açmayı etkinleştir\" seçeneklerini açın.</string>
+    <string name="home_need_registered">Önce bu konsolu eşleştirin.</string>
+    <string name="home_caption_stopping">Altyazı durduruluyor…</string>
+
+    <!-- Yardım -->
+    <string name="home_help_title">Nasıl kullanılır?</string>
+    <string name="home_help_step1_title">PS5\'te Remote Play\'i açın</string>
+    <string name="home_help_step1_body">Ayarlar → Sistem → Remote Play → \"Remote Play\'i Etkinleştir\". TV ile PS5 aynı ev ağında olmalı; mümkünse kablo kullanın.</string>
+    <string name="home_help_step2_title">İkinci bir PSN hesabı kullanın</string>
+    <string name="home_help_step2_body">Altyazı, konsola arka planda sessiz bir Remote Play bağlantısıyla bakar. Eşleştirmeyi ikinci (ücretsiz) bir PSN hesabıyla yaparsanız siz kendi hesabınızla oynamaya devam edersiniz.</string>
+    <string name="home_help_step3_title">Konsolu eşleştirin</string>
+    <string name="home_help_step3_body">\"Konsol ekle / eşleştir\"e girin. PS5\'te Ayarlar → Sistem → Remote Play → Cihazı Bağla ile çıkan PIN\'i ve hesabın Account ID\'sini yazın.</string>
+    <string name="home_help_step4_title">Başlatın, HDMI\'ya geçin, oynayın</string>
+    <string name="home_help_step4_body">\"Altyazıyı Başlat\"a basın, TV girişini PS5\'e çevirin. Oyunun ayarlarından İngilizce altyazıyı açmayı unutmayın.</string>
+    <string name="home_help_close">Anladım</string>
+
+    <!-- Hakkında -->
+    <string name="home_about_title">Hakkında</string>
+    <string name="home_about_version">Sürüm %1$s</string>
+    <string name="home_about_disclaimer">Bu uygulama Sony Interactive Entertainment ile bağlantılı değildir ve onaylanmamıştır.</string>
+    <string name="home_about_open_source">Açık kaynak: chiaki-ng (AGPL-3.0)</string>
+    <string name="home_about_source_label">Kaynak kodu</string>
+    <string name="home_about_source_url" translatable="false">https://github.com/oyilmaz6607-alt/chiaki-ng</string>
+    <string name="home_about_privacy">Ekran okuma ve çeviri bu TV\'de yapılır; görüntü veya metin dışarı gönderilmez.</string>
+    <string name="home_about_open_link">Bağlantıyı aç</string>
+    <string name="home_about_close">Kapat</string>
+    <string name="home_about_no_browser">Bu TV\'de tarayıcı bulunamadı. Adres: %1$s</string>
+
+    <!-- Eşleştirme ekranı -->
+    <string name="pair_title">Konsolu eşleştir</string>
+    <string name="pair_subtitle">Bu işlem yalnızca bir kez yapılır.</string>
+    <string name="pair_hint_host">Konsolun IP adresi</string>
+    <string name="pair_hint_host_help">Ağda bulunan konsolun adresi otomatik yazılır. Boşsa PS5\'te Ayarlar → Ağ → Bağlantı Durumu → Bağlantı Durumunu Görüntüle ekranındaki IPv4 adresini girin.</string>
+    <string name="pair_broadcast">Ağın tamamında ara (yayın)</string>
+    <string name="pair_section_console">Konsol</string>
+    <string name="pair_section_account">PSN hesabı</string>
+    <string name="pair_section_pin">PIN</string>
+    <string name="pair_hint_account_id">Account ID (Encoded ID)</string>
+    <string name="pair_hint_online_id">PSN kullanıcı adı</string>
+    <string name="pair_hint_pin">8 haneli PIN</string>
+    <string name="pair_account_help_title">Account ID nereden alınır?</string>
+    <string name="pair_account_help_body">Telefon veya bilgisayarda psn.flipscreen.games adresini açın, eşleştireceğiniz PSN kullanıcı adını yazın ve çıkan \"Encoded ID\" değerini (ör. AbCdEfGh1234=) buraya girin.</string>
+    <string name="pair_account_help_url" translatable="false">psn.flipscreen.games</string>
+    <string name="pair_pin_help_title">PIN nereden alınır?</string>
+    <string name="pair_pin_help_ps5">PS5: Ayarlar → Sistem → Remote Play → Cihazı Bağla. Ekranda çıkan 8 haneli kodu girin.</string>
+    <string name="pair_pin_help_ps4">PS4: Ayarlar → Remote Play Bağlantı Ayarları → Cihaz Ekle. Ekranda çıkan 8 haneli kodu girin.</string>
+    <string name="pair_second_account_note">İpucu: Eşleştirmeyi ikinci bir PSN hesabıyla yaparsanız kendi hesabınızla rahatça oynarsınız.</string>
+    <string name="pair_action">Eşleştir</string>
+    <string name="pair_host_invalid">Konsolun IP adresini girin</string>
+    <string name="pair_account_invalid">Geçerli bir Account ID girin (Encoded ID, 12 karakter)</string>
+    <string name="pair_online_id_invalid">Geçerli bir PSN kullanıcı adı girin</string>
+    <string name="pair_pin_invalid">%d haneli PIN\'i girin</string>
+</resources>

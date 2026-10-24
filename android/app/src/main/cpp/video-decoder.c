@@ -101,6 +101,10 @@ void android_chiaki_video_decoder_set_surface(AndroidChiakiVideoDecoder *decoder
 	AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, mime);
 	AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, decoder->target_width);
 	AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, decoder->target_height);
+	// Request low-latency decoding (Android 11+ "low-latency", honored by many TV SoC decoders, ignored otherwise)
+	// and realtime priority (0). String literals so this builds against older NDK headers (minSdk 24).
+	AMediaFormat_setInt32(format, "low-latency", 1);
+	AMediaFormat_setInt32(format, "priority", 0);
 
 	media_status_t r = AMediaCodec_configure(decoder->codec, format, decoder->window, NULL, 0);
 	if(r != AMEDIA_OK)

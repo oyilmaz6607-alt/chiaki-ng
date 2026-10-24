@@ -4,6 +4,7 @@ package com.metallic.chiaki.common
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Color
 import androidx.annotation.StringRes
 import androidx.preference.PreferenceManager
 import com.metallic.chiaki.R
@@ -11,6 +12,7 @@ import com.metallic.chiaki.lib.Codec
 import com.metallic.chiaki.lib.ConnectVideoProfile
 import com.metallic.chiaki.lib.VideoFPSPreset
 import com.metallic.chiaki.lib.VideoResolutionPreset
+import com.metallic.chiaki.subtitle.CaptionStyle
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,7 +51,7 @@ class Preferences(context: Context)
 		val codecAll = Codec.values()
 	}
 
-	private val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+	val sharedPreferences: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
 	private val sharedPreferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
 		when(key)
 		{
@@ -79,8 +81,9 @@ class Preferences(context: Context)
 		get() = sharedPreferences.getBoolean(subtitleEnabledKey, true)
 		set(value) { sharedPreferences.edit().putBoolean(subtitleEnabledKey, value).apply() }
 
+	/** Eski anahtar; artık [subtitleCaptionPosition] üzerinden türetilir ("cover" ise true). */
 	val subtitleCoverOriginal
-		get() = sharedPreferences.getBoolean(resources.getString(R.string.preferences_subtitle_cover_key), true)
+		get() = subtitleCaptionPosition == CaptionStyle.POSITION_COVER
 
 	val subtitleCapturePercent
 		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_area_key), 35).coerceIn(10, 100)
@@ -89,7 +92,81 @@ class Preferences(context: Context)
 		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_speed_key), 300).coerceIn(150, 1500)
 
 	val subtitleTextSize
-		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_size_key), 26).coerceIn(14, 48)
+		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_size_key), CaptionStyle.DEFAULT_TEXT_SIZE_SP)
+			.coerceIn(CaptionStyle.MIN_TEXT_SIZE_SP, CaptionStyle.MAX_TEXT_SIZE_SP)
+
+	// ---- Altyazı görünümü (CaptionStyle.load bunları okur)
+
+	val subtitleCaptionFontKey get() = resources.getString(R.string.preferences_caption_font_key)
+	val subtitleCaptionFont: String
+		get() = sharedPreferences.getString(subtitleCaptionFontKey, null)
+			?.takeIf { it in CaptionStyle.FONTS } ?: CaptionStyle.DEFAULT_FONT
+
+	val subtitleCaptionBold
+		get() = sharedPreferences.getBoolean(resources.getString(R.string.preferences_caption_bold_key), CaptionStyle.DEFAULT_BOLD)
+
+	val subtitleCaptionTextColor: Int
+		get() = parseColor(sharedPreferences.getString(resources.getString(R.string.preferences_caption_text_color_key), null), CaptionStyle.DEFAULT_TEXT_COLOR)
+
+	val subtitleCaptionBackgroundColor: Int
+		get() = parseColor(sharedPreferences.getString(resources.getString(R.string.preferences_caption_bg_color_key), null), CaptionStyle.DEFAULT_BACKGROUND_COLOR)
+
+	val subtitleCaptionBackgroundOpacity
+		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_caption_bg_opacity_key), CaptionStyle.DEFAULT_BACKGROUND_OPACITY).coerceIn(0, 100)
+
+	val subtitleCaptionCornerRadius
+		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_caption_corner_radius_key), CaptionStyle.DEFAULT_CORNER_RADIUS_DP)
+			.coerceIn(0, CaptionStyle.MAX_CORNER_RADIUS_DP)
+
+	val subtitleCaptionShadow: String
+		get() = sharedPreferences.getString(resources.getString(R.string.preferences_caption_shadow_key), null)
+			?.takeIf { it in CaptionStyle.SHADOWS } ?: CaptionStyle.DEFAULT_SHADOW
+
+	val subtitleCaptionLineSpacing: Float
+		get() = sharedPreferences.getString(resources.getString(R.string.preferences_caption_line_spacing_key), null)
+			?.toFloatOrNull()?.coerceIn(0.9f, 1.6f) ?: CaptionStyle.DEFAULT_LINE_SPACING
+
+	/**
+	 * "cover" | "bottom" | "top". Yeni anahtar hiç yazılmamışsa eski subtitle_cover_original
+	 * anahtarından türetilir (true → cover, false → bottom).
+	 */
+	val subtitleCaptionPositionKey get() = resources.getString(R.string.preferences_caption_position_key)
+	val subtitleCaptionPosition: String
+		get() = sharedPreferences.getString(subtitleCaptionPositionKey, null)
+			?.takeIf { it in CaptionStyle.POSITIONS }
+			?: if(sharedPreferences.getBoolean(resources.getString(R.string.preferences_subtitle_cover_key), true))
+				CaptionStyle.POSITION_COVER
+			else
+				CaptionStyle.POSITION_BOTTOM
+
+	val subtitleCaptionMaxWidthPercent
+		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_caption_max_width_key), CaptionStyle.DEFAULT_MAX_WIDTH_PERCENT)
+			.coerceIn(CaptionStyle.MIN_MAX_WIDTH_PERCENT, 100)
+
+	/** Bu anahtarlardan biri değişince altyazı görünümü yeniden çizilmeli. */
+	val subtitleCaptionStyleKeys: Set<String> get() = setOf(
+		R.string.preferences_subtitle_size_key,
+		R.string.preferences_caption_font_key,
+		R.string.preferences_caption_bold_key,
+		R.string.preferences_caption_text_color_key,
+		R.string.preferences_caption_bg_color_key,
+		R.string.preferences_caption_bg_opacity_key,
+		R.string.preferences_caption_corner_radius_key,
+		R.string.preferences_caption_shadow_key,
+		R.string.preferences_caption_line_spacing_key,
+		R.string.preferences_caption_position_key,
+		R.string.preferences_caption_max_width_key
+	).map { resources.getString(it) }.toSet()
+
+	private fun parseColor(value: String?, default: Int): Int =
+		try
+		{
+			if(value.isNullOrBlank()) default else Color.parseColor(value)
+		}
+		catch(e: IllegalArgumentException)
+		{
+			default
+		}
 
 	val rumbleEnabledKey get() = resources.getString(R.string.preferences_rumble_enabled_key)
 	var rumbleEnabled

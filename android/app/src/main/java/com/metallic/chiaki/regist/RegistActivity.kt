@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Base64
 import android.view.View
 import android.view.Window
+import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
@@ -15,6 +16,7 @@ import com.metallic.chiaki.common.ext.RevealActivity
 import com.metallic.chiaki.databinding.ActivityRegistBinding
 import com.metallic.chiaki.lib.RegistInfo
 import com.metallic.chiaki.lib.Target
+import com.metallic.chiaki.main.HomePrefs
 import java.lang.IllegalArgumentException
 
 class RegistActivity: AppCompatActivity(), RevealActivity
@@ -46,8 +48,15 @@ class RegistActivity: AppCompatActivity(), RevealActivity
 
 		viewModel = ViewModelProvider(this).get(RegistViewModel::class.java)
 
-		binding.hostEditText.setText(intent.getStringExtra(EXTRA_HOST) ?: "255.255.255.255")
-		binding.broadcastCheckBox.isChecked = intent.getBooleanExtra(EXTRA_BROADCAST, true)
+		// AltyazıTR: TV'de yayın (broadcast) araması "Permission denied" verebiliyor. Bu yüzden
+		// adres verilmediyse ağda en son görülen konsolun IP'si yazılır ve yayın kapalı başlar.
+		if(savedInstanceState == null)
+		{
+			val extraHost = intent.getStringExtra(EXTRA_HOST)
+			val defaultHost = extraHost ?: HomePrefs(this).lastDiscoveredHost ?: ""
+			binding.hostEditText.setText(defaultHost)
+			binding.broadcastCheckBox.isChecked = intent.getBooleanExtra(EXTRA_BROADCAST, false)
+		}
 
 		binding.registButton.setOnClickListener { doRegist() }
 
@@ -70,15 +79,20 @@ class RegistActivity: AppCompatActivity(), RevealActivity
 		}
 
 		viewModel.ps4Version.observe(this, Observer {
-			binding.psnAccountIdHelpGroup.visibility = if(it == RegistViewModel.ConsoleVersion.PS4_LT_7) View.GONE else View.VISIBLE
-			binding.psnIdTextInputLayout.hint = getString(when(it!!)
-			{
-				RegistViewModel.ConsoleVersion.PS4_LT_7 -> R.string.hint_regist_psn_online_id
-				else -> R.string.hint_regist_psn_account_id
-			})
-			binding.pinHelpBeforeTextView.setText(if(it.isPS5) R.string.regist_pin_instructions_ps5_before else R.string.regist_pin_instructions_ps4_before)
-			binding.pinHelpNavigationTextView.setText(if(it.isPS5) R.string.regist_pin_instructions_ps5_navigation else R.string.regist_pin_instructions_ps4_navigation)
+			val isLegacy = it == RegistViewModel.ConsoleVersion.PS4_LT_7
+			binding.accountHelpCard.visibility = if(isLegacy) View.GONE else View.VISIBLE
+			binding.psnIdTextInputLayout.hint = getString(if(isLegacy) R.string.pair_hint_online_id else R.string.pair_hint_account_id)
+			binding.pinHelpTextView.setText(if(it.isPS5) R.string.pair_pin_help_ps5 else R.string.pair_pin_help_ps4)
 		})
+
+		// Kumandayla açılışta ilk boş alana odaklan; klavye ancak alana basılınca açılsın
+		window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+		when
+		{
+			binding.hostEditText.text.isNullOrBlank() -> binding.hostEditText
+			binding.psnIdEditText.text.isNullOrBlank() -> binding.psnIdEditText
+			else -> binding.pinEditText
+		}.requestFocus()
 	}
 
 	private fun doRegist()
@@ -106,20 +120,28 @@ class RegistActivity: AppCompatActivity(), RevealActivity
 		val pin = binding.pinEditText.text.toString()
 		val pinValid = pin.length == PIN_LENGTH
 
-		binding.hostEditText.error = if(!hostValid) getString(R.string.entered_host_invalid) else null
-		binding.psnIdEditText.error =
+		binding.hostTextInputLayout.error = if(!hostValid) getString(R.string.pair_host_invalid) else null
+		binding.psnIdTextInputLayout.error =
 			if(!psnIdValid)
 				getString(when(ps4Version)
 				{
-					RegistViewModel.ConsoleVersion.PS4_LT_7 -> R.string.regist_psn_online_id_invalid
-					else -> R.string.regist_psn_account_id_invalid
+					RegistViewModel.ConsoleVersion.PS4_LT_7 -> R.string.pair_online_id_invalid
+					else -> R.string.pair_account_invalid
 				})
 			else
 				null
-		binding.pinEditText.error = if(!pinValid) getString(R.string.regist_pin_invalid, PIN_LENGTH) else null
+		binding.pinTextInputLayout.error = if(!pinValid) getString(R.string.pair_pin_invalid, PIN_LENGTH) else null
 
 		if(!hostValid || !psnIdValid || !pinValid)
+		{
+			when
+			{
+				!hostValid -> binding.hostEditText
+				!psnIdValid -> binding.psnIdEditText
+				else -> binding.pinEditText
+			}.requestFocus()
 			return
+		}
 
 		val target = when(ps4Version)
 		{

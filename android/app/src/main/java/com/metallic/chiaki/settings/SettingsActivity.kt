@@ -43,6 +43,10 @@ class SettingsActivity: AppCompatActivity(), PreferenceFragmentCompat.OnPreferen
 			replaceFragment(SettingsRegisteredHostsFragment(), true)
 			true
 		}
+		CaptionAppearanceFragment::class.java.canonicalName -> {
+			replaceFragment(CaptionAppearanceFragment(), true)
+			true
+		}
 		else -> false
 	}
 

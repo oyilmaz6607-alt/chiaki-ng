@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AltyazıTR ana ekran / eşleştirme paleti -->
+<resources>
+    <color name="home_bg">#0B0F17</color>
+    <color name="home_bg_top">#141C2C</color>
+    <color name="home_bg_bottom">#080B11</color>
+    <color name="home_surface">#151C29</color>
+    <color name="home_surface_deep">#0F1520</color>
+    <color name="home_surface_focused">#222C3F</color>
+    <color name="home_outline">#26FFFFFF</color>
+    <color name="home_accent">#FFC83D</color>
+    <color name="home_accent_focused">#FFD970</color>
+    <color name="home_accent_dim">#99FFC83D</color>
+    <color name="home_on_accent">#17120A</color>
+    <color name="home_text">#F4F6FA</color>
+    <color name="home_text_muted">#A3ACBD</color>
+    <color name="home_text_faint">#6B7487</color>
+    <color name="home_ready">#4ADE80</color>
+    <color name="home_standby">#7DA6FF</color>
+    <color name="home_offline">#8A93A6</color>
+    <color name="home_danger">#FF6B6B</color>
+    <color name="home_danger_focused">#FF9090</color>
+    <color name="home_brand_red">#E5262E</color>
+    <color name="home_focus_ring">#FFFFFF</color>
+    <color name="altyazi_icon_bg">#0B0F17</color>
+</resources>

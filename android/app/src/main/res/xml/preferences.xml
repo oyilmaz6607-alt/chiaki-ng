@@ -10,11 +10,14 @@
             app:title="@string/preferences_subtitle_enabled_title"
             app:summary="@string/preferences_subtitle_enabled_summary"
             app:defaultValue="true" />
-        <SwitchPreference
-            app:key="@string/preferences_subtitle_cover_key"
-            app:title="@string/preferences_subtitle_cover_title"
-            app:summary="@string/preferences_subtitle_cover_summary"
-            app:defaultValue="true"
+        <com.metallic.chiaki.subtitle.CaptionPreviewPreference
+            app:key="subtitle_caption_preview"
+            app:title="@string/preferences_caption_preview_title" />
+        <Preference
+            app:key="@string/preferences_caption_appearance_key"
+            app:title="@string/preferences_caption_appearance_title"
+            app:summary="@string/preferences_caption_appearance_summary"
+            app:fragment="com.metallic.chiaki.settings.CaptionAppearanceFragment"
             app:dependency="@string/preferences_subtitle_enabled_key" />
         <SeekBarPreference
             app:key="@string/preferences_subtitle_area_key"
@@ -34,14 +37,6 @@
             app:defaultValue="300"
             app:showSeekBarValue="true"
             app:seekBarIncrement="50"
-            app:dependency="@string/preferences_subtitle_enabled_key" />
-        <SeekBarPreference
-            app:key="@string/preferences_subtitle_size_key"
-            app:title="@string/preferences_subtitle_size_title"
-            app:min="14"
-            android:max="48"
-            app:defaultValue="26"
-            app:showSeekBarValue="true"
             app:dependency="@string/preferences_subtitle_enabled_key" />
     </PreferenceCategory>
 
