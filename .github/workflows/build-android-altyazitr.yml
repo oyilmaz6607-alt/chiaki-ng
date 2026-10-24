@@ -61,11 +61,17 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest bundleRelease assembleRelease
+          if [ "$HAS_KEYSTORE" = "true" ]; then
+            ./gradlew --no-daemon testDebugUnitTest assembleDebug bundleRelease assembleRelease
+          else
+            # İmza anahtarı yoksa: TV'de denemek için doğrudan kurulabilen test APK'sı
+            ./gradlew --no-daemon testDebugUnitTest assembleDebug
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: altyazitr-release
+          name: altyazitr-apk
           path: |
+            android/app/build/outputs/apk/debug/*.apk
             android/app/build/outputs/bundle/release/*.aab
             android/app/build/outputs/apk/release/*.apk
