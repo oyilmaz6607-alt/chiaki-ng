@@ -82,6 +82,14 @@ android {
 
     signingConfigs {
         release
+        // Sabit test anahtarı: her derleme aynı imzayla çıkar, TV'de eskisini kaldırmadan güncellenir.
+        // Sadece test içindir; Play Store sürümü ayrı, gizli anahtarla imzalanır.
+        debug {
+            storeFile file("debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
     }
 
     buildTypes {
