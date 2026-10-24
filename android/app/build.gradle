@@ -32,6 +32,8 @@ android {
         targetSdk 35
         versionCode 1
         versionName chiakiVersion
+        // TV'ler ARM işlemcili: x86 kütüphanelerini çıkarmak APK'yı yarıya indirir
+        ndk { abiFilters "armeabi-v7a", "arm64-v8a" }
         externalNativeBuild {
             cmake {
                 arguments "-DCHIAKI_ENABLE_TESTS=OFF",
