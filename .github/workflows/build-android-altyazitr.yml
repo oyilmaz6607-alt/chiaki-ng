@@ -48,6 +48,10 @@ jobs:
               third-party/nanopb third-party/jerasure third-party/gf-complete \
               third-party/curl android/app/src/main/cpp/oboe
 
+            echo "== protoc =="
+            sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
+            protoc --version
+
             echo "== python protobuf =="
             python3 -m pip install --user --break-system-packages 'protobuf>=5,<6'
 
