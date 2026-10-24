@@ -206,6 +206,10 @@ static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
 	(*global_vm)->DetachCurrentThread(global_vm);
 }
 
+// AltyazıTR: sessiz oturum için boş ses alıcısı (görüntü sadece altyazı okumak için kullanılır)
+static void android_chiaki_mute_audio_header(ChiakiAudioHeader *header, void *user) { (void)header; (void)user; }
+static void android_chiaki_mute_audio_frame(uint8_t *buf, size_t buf_size, void *user) { (void)buf; (void)buf_size; (void)user; }
+
 JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject result, jobject connect_info_obj, jstring log_file_str, jboolean log_verbose, jobject java_session)
 {
 	AndroidChiakiSession *session = NULL;
@@ -222,6 +226,7 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 
 	jclass connect_info_class = E->GetObjectClass(env, connect_info_obj);
 	jboolean ps5 = E->GetBooleanField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "ps5", "Z"));
+	jboolean mute_audio = E->GetBooleanField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "muteAudio", "Z"));
 	jstring host_string = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "host", "Ljava/lang/String;"));
 	jbyteArray regist_key_array = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "registKey", "[B"));
 	jbyteArray morning_array = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "morning", "[B"));
@@ -350,7 +355,14 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	chiaki_session_set_video_sample_cb(&session->session, android_chiaki_video_decoder_video_sample, &session->video_decoder);
 
 	ChiakiAudioSink audio_sink;
-	android_chiaki_audio_decoder_get_sink(&session->audio_decoder, &audio_sink);
+	if(mute_audio)
+	{
+		memset(&audio_sink, 0, sizeof(audio_sink));
+		audio_sink.header_cb = android_chiaki_mute_audio_header;
+		audio_sink.frame_cb = android_chiaki_mute_audio_frame;
+	}
+	else
+		android_chiaki_audio_decoder_get_sink(&session->audio_decoder, &audio_sink);
 	chiaki_session_set_audio_sink(&session->session, &audio_sink);
 
 beach:

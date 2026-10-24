@@ -69,7 +69,9 @@ data class ConnectInfo(
 	val host: String,
 	val registKey: ByteArray,
 	val morning: ByteArray,
-	val videoProfile: ConnectVideoProfile
+	val videoProfile: ConnectVideoProfile,
+	/** AltyazıTR: true = ses çalınmaz (HDMI üstü altyazı modu) */
+	val muteAudio: Boolean = false
 ): Parcelable
 
 private class ChiakiNative

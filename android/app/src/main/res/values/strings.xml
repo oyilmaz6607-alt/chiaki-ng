@@ -140,4 +140,20 @@
     <string name="stream_subtitles">Türkçe altyazı</string>
     <string name="subtitle_model_downloading">Türkçe çeviri modeli indiriliyor (yalnızca ilk seferde, ~30 MB)…</string>
     <string name="subtitle_model_failed">Çeviri modeli indirilemedi. İnternet bağlantısını kontrol edin.</string>
+    <!-- HDMI üstü altyazı modu -->
+    <string name="caption_mode_title">Nasıl oynamak istersiniz?</string>
+    <string name="caption_mode_overlay">Altyazı modu (önerilen)</string>
+    <string name="caption_mode_overlay_desc">Oyunu HDMI\'dan normal oynayın; Türkçe altyazı görüntünün üstüne yazılır.</string>
+    <string name="caption_mode_stream">Remote Play ile oyna</string>
+    <string name="caption_mode_stop">Altyazıyı durdur</string>
+    <string name="caption_overlay_permission">Altyazıyı oyunun üstünde gösterebilmek için \"Diğer uygulamaların üzerinde göster\" izni gerekiyor. Açılan ekranda AltyazıTR Oyun\'u bulup izni açın, sonra geri dönün.</string>
+    <string name="caption_overlay_permission_missing">Bu TV izin ekranını açamadı. Ayarlar → Uygulamalar → Özel uygulama erişimi → Diğer uygulamaların üzerinde göster bölümünden AltyazıTR Oyun\'a izin verin.</string>
+    <string name="caption_started">Altyazı modu başladı. Şimdi TV\'nin girişini PS5\'in HDMI girişine geçirin.</string>
+    <string name="caption_status_connecting">AltyazıTR: PS5\'e bağlanıyor…</string>
+    <string name="caption_status_failed">AltyazıTR: bağlanılamadı (%1$s)</string>
+    <string name="caption_status_quit">AltyazıTR: bağlantı kapandı (%1$s)</string>
+    <string name="caption_status_pin">AltyazıTR: PS5 giriş PIN\'i istiyor; uygulamadan bir kez Remote Play ile bağlanıp PIN\'i girin.</string>
+    <string name="caption_channel">Altyazı çevirisi</string>
+    <string name="caption_notification_title">Türkçe altyazı çalışıyor</string>
+    <string name="action_ok">Tamam</string>
 </resources>

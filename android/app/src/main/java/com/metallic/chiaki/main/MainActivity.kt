@@ -3,7 +3,11 @@
 package com.metallic.chiaki.main
 
 import android.app.ActivityOptions
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import android.widget.Toast
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
@@ -25,6 +29,7 @@ import com.metallic.chiaki.manualconsole.EditManualConsoleActivity
 import com.metallic.chiaki.regist.RegistActivity
 import com.metallic.chiaki.settings.SettingsActivity
 import com.metallic.chiaki.stream.StreamActivity
+import com.metallic.chiaki.subtitle.CaptionService
 
 class MainActivity : AppCompatActivity()
 {
@@ -174,6 +179,57 @@ class MainActivity : AppCompatActivity()
 		}
 	}
 
+	/** AltyazıTR: HDMI üstü altyazı modu mu, klasik Remote Play mi? */
+	private fun chooseMode(connectInfo: ConnectInfo)
+	{
+		val items = mutableListOf(getString(R.string.caption_mode_overlay), getString(R.string.caption_mode_stream))
+		if(CaptionService.isRunning)
+			items.add(getString(R.string.caption_mode_stop))
+		MaterialAlertDialogBuilder(this)
+			.setTitle(R.string.caption_mode_title)
+			.setItems(items.toTypedArray()) { _, which ->
+				when(which)
+				{
+					0 -> startCaptionMode(connectInfo)
+					1 -> Intent(this, StreamActivity::class.java).let {
+						it.putExtra(StreamActivity.EXTRA_CONNECT_INFO, connectInfo)
+						startActivity(it)
+					}
+					2 -> CaptionService.stop(this)
+				}
+			}
+			.show()
+	}
+
+	private fun startCaptionMode(connectInfo: ConnectInfo)
+	{
+		if(!CaptionService.canDrawOverlays(this))
+		{
+			MaterialAlertDialogBuilder(this)
+				.setMessage(R.string.caption_overlay_permission)
+				.setPositiveButton(R.string.action_ok) { _, _ ->
+					try
+					{
+						startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+					}
+					catch(e: ActivityNotFoundException)
+					{
+						MaterialAlertDialogBuilder(this)
+							.setMessage(R.string.caption_overlay_permission_missing)
+							.setPositiveButton(R.string.action_ok, null)
+							.show()
+					}
+				}
+				.show()
+			return
+		}
+		if(CaptionService.isRunning)
+			CaptionService.stop(this)
+		CaptionService.start(this, connectInfo)
+		Toast.makeText(this, R.string.caption_started, Toast.LENGTH_LONG).show()
+		moveTaskToBack(true)
+	}
+
 	private fun hostTriggered(host: DisplayHost)
 	{
 		val registeredHost = host.registeredHost
@@ -181,10 +237,7 @@ class MainActivity : AppCompatActivity()
 		{
 			fun connect() {
 				val connectInfo = ConnectInfo(host.isPS5, host.host, registeredHost.rpRegistKey, registeredHost.rpKey, Preferences(this).videoProfile)
-				Intent(this, StreamActivity::class.java).let {
-					it.putExtra(StreamActivity.EXTRA_CONNECT_INFO, connectInfo)
-					startActivity(it)
-				}
+				chooseMode(connectInfo)
 			}
 
 			if(host is DiscoveredDisplayHost && host.discoveredHost.state == DiscoveryHost.State.STANDBY)
