@@ -41,7 +41,9 @@ class SubtitleTranslator(
 	private val surfaceView: SurfaceView,
 	private val output: TextView,
 	private val scope: CoroutineScope,
-	private val config: Config = Config()
+	private val config: Config = Config(),
+	/** Test sürümünde köşede durum bilgisi gösterir (null = kapalı). */
+	private val debugView: TextView? = null
 )
 {
 	data class Config(
@@ -77,6 +79,28 @@ class SubtitleTranslator(
 	private var bitmap: Bitmap? = null
 	private var modelReady = false
 
+	// Tanılama bilgisi
+	private var frames = 0
+	private var copyFails = 0
+	private var lastOcr = ""
+	private var lastError = ""
+	private var modelState = "bekliyor"
+	private var lastTranslation = ""
+
+	private fun updateDebug()
+	{
+		val v = debugView ?: return
+		v.visibility = View.VISIBLE
+		v.text = buildString {
+			append("Altyazı: model=").append(modelState)
+			append(" | kare=").append(frames)
+			append(" | kopya hatası=").append(copyFails)
+			if(lastOcr.isNotEmpty()) append("\nOkunan: ").append(lastOcr.take(80))
+			if(lastTranslation.isNotEmpty()) append("\nÇeviri: ").append(lastTranslation.take(80))
+			if(lastError.isNotEmpty()) append("\nHata: ").append(lastError.take(120))
+		}
+	}
+
 	val isRunning get() = job?.isActive == true
 
 	fun start()
@@ -85,9 +109,13 @@ class SubtitleTranslator(
 			return
 		tracker.reset()
 		job = scope.launch {
-			ensureModel()
-			if(!modelReady)
-				return@launch
+			// Model inene kadar tekrar dene (internet geç gelebilir)
+			while(isActive && !modelReady)
+			{
+				ensureModel()
+				if(!modelReady)
+					delay(10_000)
+			}
 			while(isActive)
 			{
 				val started = System.currentTimeMillis()
@@ -102,7 +130,10 @@ class SubtitleTranslator(
 				catch(e: Exception)
 				{
 					Log.w(TAG, "Subtitle frame failed", e)
+					lastError = "${e.javaClass.simpleName}: ${e.message}"
 				}
+				frames++
+				updateDebug()
 				val elapsed = System.currentTimeMillis() - started
 				delay(max(50L, config.intervalMs - elapsed))
 			}
@@ -115,6 +146,7 @@ class SubtitleTranslator(
 		job = null
 		tracker.reset()
 		output.visibility = View.GONE
+		debugView?.visibility = View.GONE
 	}
 
 	fun release()
@@ -132,15 +164,22 @@ class SubtitleTranslator(
 		if(modelReady)
 			return
 		showStatus(output.context.getString(R.string.subtitle_model_downloading))
+		modelState = "iniyor"
+		updateDebug()
 		try
 		{
 			translator.downloadModelIfNeeded(DownloadConditions.Builder().build()).await()
 			modelReady = true
+			modelState = "hazır"
+			updateDebug()
 			output.visibility = View.GONE
 		}
 		catch(e: Exception)
 		{
 			Log.e(TAG, "Translation model download failed", e)
+			modelState = "HATA"
+			lastError = "Model: ${e.javaClass.simpleName}: ${e.message}"
+			updateDebug()
 			showStatus(output.context.getString(R.string.subtitle_model_failed))
 			delay(4000)
 			output.visibility = View.GONE
@@ -168,7 +207,10 @@ class SubtitleTranslator(
 			}
 
 		if(!copyFrame(src, bmp))
+		{
+			copyFails++
 			return
+		}
 
 		val result = recognizer.process(InputImage.fromBitmap(bmp, 0)).await()
 		val lines = result.textBlocks.flatMap { block ->
@@ -184,11 +226,14 @@ class SubtitleTranslator(
 			}
 		}
 
-		when(val action = tracker.onFrame(SubtitleFilter.pickSubtitle(lines)))
+		val candidate = SubtitleFilter.pickSubtitle(lines)
+		lastOcr = candidate?.text ?: (if(lines.isEmpty()) "(yazı yok)" else "(${lines.size} satır, altyazı değil)")
+		when(val action = tracker.onFrame(candidate))
 		{
 			is SubtitleTracker.Action.Show ->
 			{
 				val turkish = translate(action.candidate.text)
+				lastTranslation = turkish
 				show(turkish, action.candidate, fraction)
 			}
 			is SubtitleTracker.Action.Keep -> place(action.candidate, fraction)

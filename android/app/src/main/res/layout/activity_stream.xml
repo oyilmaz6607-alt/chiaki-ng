@@ -20,6 +20,21 @@
             android:layout_height="wrap_content"/>
     </com.metallic.chiaki.stream.AspectRatioFrameLayout>
 
+    <!-- Test sürümü: altyazı çevirisinin durum bilgisi -->
+    <TextView
+        android:id="@+id/subtitleDebug"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="12dp"
+        android:maxWidth="700dp"
+        android:padding="6dp"
+        android:background="#B3000000"
+        android:textColor="#FFFFEB3B"
+        android:textSize="12sp"
+        android:focusable="false"
+        android:visibility="gone"/>
+
     <!-- Türkçe altyazı: konumu SubtitleTranslator tarafından İngilizce altyazının üstüne taşınır -->
     <TextView
         android:id="@+id/subtitleText"

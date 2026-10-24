@@ -189,6 +189,7 @@ class StreamActivity : AppCompatActivity()
 		subtitleTranslator = SubtitleTranslator(
 			surfaceView = binding.surfaceView,
 			output = binding.subtitleText,
+			debugView = if(com.metallic.chiaki.BuildConfig.DEBUG) binding.subtitleDebug else null,
 			scope = lifecycleScope,
 			config = SubtitleTranslator.Config(
 				captureFraction = prefs.subtitleCapturePercent / 100f,
