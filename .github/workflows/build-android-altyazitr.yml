@@ -38,7 +38,7 @@ jobs:
           set -o pipefail
           LOG="$RUNNER_TEMP/build.log"
           summarize() {
-            body=$( (grep -n -i -E "error|failed|what went wrong|exception|not found|cannot|denied" "$LOG" | tail -n 30; echo '--- son satirlar ---'; tail -n 30 "$LOG") | cut -c1-300 )
+            body=$( (grep -n -E "^e: |^w: .*(incompatible|metadata)|What went wrong" "$LOG" | head -n 40; echo '--- son satirlar ---'; tail -n 30 "$LOG") | cut -c1-300 )
             body="${body//'%'/'%25'}"; body="${body//$'\r'/}"; body="${body//$'\n'/'%0A'}"
             echo "::error title=Derleme hatasi::$body"
           }
