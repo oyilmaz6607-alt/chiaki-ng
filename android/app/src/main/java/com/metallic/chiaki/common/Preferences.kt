@@ -92,6 +92,9 @@ class Preferences(context: Context)
 	val subtitleIntervalMs
 		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_speed_key), 300).coerceIn(150, 1500)
 
+	val subtitleDebugInfo
+		get() = sharedPreferences.getBoolean(resources.getString(R.string.preferences_subtitle_debug_key), false)
+
 	val subtitleTextSize
 		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_size_key), CaptionStyle.DEFAULT_TEXT_SIZE_SP)
 			.coerceIn(CaptionStyle.MIN_TEXT_SIZE_SP, CaptionStyle.MAX_TEXT_SIZE_SP)

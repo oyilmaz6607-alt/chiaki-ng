@@ -207,7 +207,8 @@ class CaptionService : Service()
 	private lateinit var windowManager: WindowManager
 	private var captionView: TextView? = null
 	private var statusView: TextView? = null
-	private val showDebug = BuildConfig.DEBUG
+	/** Sol üstteki sarı geliştirici bilgisi: Ayarlar'dan açılır, varsayılan kapalı. */
+	private val showDebug by lazy { Preferences(this).subtitleDebugInfo }
 	private var captionPosition = CaptionStyle.POSITION_COVER
 	private var bandMaxWidthFraction = 0.8f
 	private var baseTextPx = 0f

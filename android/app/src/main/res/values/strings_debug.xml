@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="preferences_subtitle_debug_key" translatable="false">subtitle_debug_info</string>
+    <string name="preferences_subtitle_debug_title">Geliştirici bilgisini göster</string>
+    <string name="preferences_subtitle_debug_summary">Oyun sırasında sol üstte gecikme ve okuma ayrıntılarını gösterir (sarı yazı)</string>
+</resources>

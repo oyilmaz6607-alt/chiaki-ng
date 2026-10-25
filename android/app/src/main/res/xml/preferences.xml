@@ -38,6 +38,11 @@
             app:showSeekBarValue="true"
             app:seekBarIncrement="50"
             app:dependency="@string/preferences_subtitle_enabled_key" />
+        <SwitchPreference
+            app:key="@string/preferences_subtitle_debug_key"
+            app:title="@string/preferences_subtitle_debug_title"
+            app:summary="@string/preferences_subtitle_debug_summary"
+            app:defaultValue="false" />
     </PreferenceCategory>
 
     <PreferenceCategory
