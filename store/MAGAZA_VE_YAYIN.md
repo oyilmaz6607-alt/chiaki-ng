@@ -48,6 +48,7 @@ Kaynak: Google ML Kit veri açıklaması (https://developers.google.com/ml-kit/a
 - Toplanan veriler:
   - **Uygulama bilgileri ve performans → Tanılama verileri** (Diagnostics) — amaç: Analiz/uygulama işlevselliği; isteğe bağlı değil; aktarım sırasında şifreli: Evet.
   - **Cihaz veya diğer kimlikler** — ML Kit kurulum başına kimlik kullanır; amaç: Analiz; şifreli: Evet.
+- Kullanıcı Gemini'yi seçerse: **Uygulama etkinliği → Diğer kullanıcı tarafından oluşturulan içerik değil; "Uygulama içi metin"** — altyazı metni, kullanıcının kendi anahtarıyla Google Gemini API'ye gönderilir; amaç: Uygulama işlevselliği; isteğe bağlı: Evet; şifreli: Evet. (Formda en yakın kategori seçilmeli; Google'ın güncel kategori listesine bakın.)
 - Paylaşılan veri: **Yok** (ML Kit verileri üçüncü taraflarla paylaşmaz; Google'a hizmet sağlayıcı olarak gönderim "paylaşım" sayılmaz).
 - Veri silme isteği: Uygulama kendi sunucusunda veri tutmaz; kaldırınca cihazdaki her şey silinir.
 

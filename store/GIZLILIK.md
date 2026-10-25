@@ -18,6 +18,12 @@ AltyazıTR Oyun ("uygulama"), PlayStation oyunlarındaki İngilizce altyazılar�
 ## Google ML Kit
 Metin tanıma ve çeviri için Google'ın ML Kit kitaplığı kullanılır. Çeviri modeli ilk kullanımda Google sunucularından indirilir. ML Kit, hizmetin çalışmasını ve hata ayıklamayı sağlamak için cihaz/uygulama bilgileri, performans ölçümleri, hata kodları ve seçilen dil çifti gibi **tanılama verilerini** HTTPS ile şifreli olarak Google'a gönderebilir. Bu veriler oyun görüntüsü veya altyazı içeriği değildir. Ayrıntılar: https://developers.google.com/ml-kit/android-data-disclosure
 
+## İsteğe bağlı Gemini çevirisi
+Varsayılan çeviri cihaz içinde yapılır. Ayarlardan **Gemini** motorunu seçip kendi Google API anahtarınızı girerseniz: ekrandan okunan İngilizce altyazı metni ve tutarlılık için en fazla 4 önceki altyazı çifti (İngilizce ve Türkçe), sizin anahtarınızla Google'ın Gemini API'sine (generativelanguage.googleapis.com) HTTPS ile gönderilir ve Google'ın API koşullarına tabidir. Görüntü, ses, video veya cihaz kimliği gönderilmez. Google'ın ücretsiz kullanım katmanında gönderilen içerik Google tarafından ürünlerini geliştirmek için kullanılabilir. API anahtarınız ve çeviri önbelleği (en fazla yaklaşık 2000 satır) yalnızca TV'nizde saklanır ve cihaz yedeklerine dahil edilmez.
+
+## Telefondan kontrol
+TV uygulaması, ev ağınızda telefonunuzun açabileceği bir kontrol sayfası sunar. Sayfa yalnızca yerel ağdan erişilebilir ve her açılışta değişen bir kodla korunur; bu sayfa üzerinden girilen bilgiler (ayarlar, eşleştirme bilgileri, isteğe bağlı API anahtarı) yalnızca TV'nize gider.
+
 ## İzinler
 - **İnternet / ağ:** Konsolunuza ev ağı üzerinden bağlanmak ve çeviri modelini indirmek için.
 - **Diğer uygulamaların üzerinde gösterme:** Türkçe altyazıyı HDMI görüntüsünün üstünde göstermek için.
