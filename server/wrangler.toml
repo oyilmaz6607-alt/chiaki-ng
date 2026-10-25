@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# AltyazıTR Pro çeviri sunucusu — Cloudflare Worker yapılandırması.
+# Kurulum: KURULUM.md
+
+name = "altyazitr-api"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Gizli değerler BURAYA YAZILMAZ. GitHub "Deploy server" iş akışı GitHub Secrets'tan
+# `wrangler secret put` ile yükler (ya da elle: npx wrangler secret put NAME):
+#   GEMINI_API_KEY               — ücretli (faturalı) projedeki Gemini API anahtarı
+#   SESSION_SECRET               — oturum jetonu HMAC anahtarı (en az 32 rastgele karakter; yoksa iş akışı üretir)
+#   GOOGLE_SERVICE_ACCOUNT_JSON  — Play Developer API hizmet hesabı JSON anahtarının tamamı
+
+[vars]
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+MONTHLY_LINE_LIMIT = "30000"
+MAX_TEXT_CHARS = "600"
+
+# Önbellek, kota sayaçları, doğrulama önbelleği ve Google erişim jetonu.
+# id'yi iş akışı otomatik bulur/oluşturur ve dağıtımdan önce bu satıra yazar.
+[[kv_namespaces]]
+binding = "ALTYAZI_KV"
+id = "KV_NAMESPACE_ID_PLACEHOLDER"
+
+[observability]
+enabled = true
+
+# Hız notu: Worker kullanıcıya en yakın Cloudflare merkezinde (ör. İstanbul) çalışır ve Gemini'ye
+# Cloudflare'in Google'a giden omurgası üzerinden bağlanır; aynı isolate'teki ardışık fetch'ler
+# bağlantıyı yeniden kullanır (ek ayar gerekmez). İstekler Gemini'ye uzun yol gidiyorsa "Smart
+# Placement" Worker'ı arka uca yakın bir merkeze taşıyabilir; ölçüp gerekirse aşağıdakini açın:
+# [placement]
+# mode = "smart"
