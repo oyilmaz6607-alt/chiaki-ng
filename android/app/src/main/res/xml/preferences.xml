@@ -41,6 +41,41 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        app:key="category_translation"
+        app:title="@string/preferences_category_title_translation">
+        <ListPreference
+            app:key="@string/preferences_translation_engine_key"
+            app:title="@string/preferences_translation_engine_title"
+            app:entries="@array/translation_engine_entries"
+            app:entryValues="@array/translation_engine_values"
+            app:dependency="@string/preferences_subtitle_enabled_key" />
+        <EditTextPreference
+            app:key="@string/preferences_gemini_api_key_key"
+            app:title="@string/preferences_gemini_api_key_title"
+            app:dialogMessage="@string/preferences_gemini_api_key_dialog"
+            app:dependency="@string/preferences_subtitle_enabled_key" />
+        <ListPreference
+            app:key="@string/preferences_gemini_model_key"
+            app:title="@string/preferences_gemini_model_title"
+            app:entries="@array/gemini_model_entries"
+            app:entryValues="@array/gemini_model_values"
+            app:defaultValue="gemini-3.5-flash-lite"
+            app:summary="%s"
+            app:dependency="@string/preferences_subtitle_enabled_key" />
+        <SwitchPreference
+            app:key="@string/preferences_translation_draft_first_key"
+            app:title="@string/preferences_translation_draft_first_title"
+            app:summary="@string/preferences_translation_draft_first_summary"
+            app:defaultValue="true"
+            app:dependency="@string/preferences_subtitle_enabled_key" />
+        <Preference
+            app:key="@string/preferences_gemini_test_key"
+            app:title="@string/preferences_gemini_test_title"
+            app:summary="@string/preferences_gemini_test_summary"
+            app:dependency="@string/preferences_subtitle_enabled_key" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
         app:key="category_general"
         app:title="@string/preferences_category_title_general">
         <Preference

@@ -32,6 +32,7 @@ import com.metallic.chiaki.lib.Target
 import com.metallic.chiaki.main.HomeConsole
 import com.metallic.chiaki.main.HomePrefs
 import com.metallic.chiaki.subtitle.CaptionService
+import com.metallic.chiaki.subtitle.TranslationSettings
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -332,6 +333,10 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 		CompanionSettings.KEY_LINE_SPACING -> R.string.preferences_caption_line_spacing_title
 		CompanionSettings.KEY_CAPTURE_PERCENT -> R.string.preferences_subtitle_area_title
 		CompanionSettings.KEY_INTERVAL_MS -> R.string.preferences_subtitle_speed_title
+		CompanionSettings.KEY_TRANSLATION_ENGINE -> R.string.preferences_translation_engine_title
+		CompanionSettings.KEY_GEMINI_API_KEY -> R.string.preferences_gemini_api_key_title
+		CompanionSettings.KEY_GEMINI_MODEL -> R.string.preferences_gemini_model_title
+		CompanionSettings.KEY_DRAFT_FIRST -> R.string.preferences_translation_draft_first_title
 		else -> null
 	}
 
@@ -344,6 +349,8 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 		CompanionSettings.KEY_SHADOW -> R.array.caption_shadow_entries to R.array.caption_shadow_values
 		CompanionSettings.KEY_POSITION -> R.array.caption_position_entries to R.array.caption_position_values
 		CompanionSettings.KEY_LINE_SPACING -> R.array.caption_line_spacing_entries to R.array.caption_line_spacing_values
+		CompanionSettings.KEY_TRANSLATION_ENGINE -> R.array.translation_engine_entries to R.array.translation_engine_values
+		CompanionSettings.KEY_GEMINI_MODEL -> R.array.gemini_model_entries to R.array.gemini_model_values
 		else -> null
 	}
 
@@ -389,8 +396,14 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 				CompanionSettings.KEY_MAX_WIDTH -> p.subtitleCaptionMaxWidthPercent
 				CompanionSettings.KEY_CAPTURE_PERCENT -> p.subtitleCapturePercent
 				CompanionSettings.KEY_INTERVAL_MS -> p.subtitleIntervalMs
+				CompanionSettings.KEY_TRANSLATION_ENGINE -> p.translationEngineChoice
+				CompanionSettings.KEY_GEMINI_MODEL -> p.geminiModel
+				CompanionSettings.KEY_DRAFT_FIRST -> p.translationDraftFirst
+				// Gizli anahtar asla açık gönderilmez: yalnızca maskeli hâli ("AIza…x7Q2") veya "".
+				CompanionSettings.KEY_GEMINI_API_KEY -> TranslationSettings.maskApiKey(p.geminiApiKey)
 				else -> when(spec)
 				{
+					is CompanionSettings.Spec.Secret -> ""
 					is CompanionSettings.Spec.Choice -> choiceValue(spec)
 					is CompanionSettings.Spec.IntRange -> spec.default
 					is CompanionSettings.Spec.Bool -> spec.default
@@ -423,6 +436,13 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 				{
 					o.put("type", "bool")
 					o.put("default", spec.default)
+				}
+				is CompanionSettings.Spec.Secret ->
+				{
+					o.put("type", "secret")
+					o.put("maxLength", spec.maxLength)
+					if(spec.key == CompanionSettings.KEY_GEMINI_API_KEY)
+						o.put("help", "Ücretsiz anahtar: aistudio.google.com/apikey · Gemini'ye yalnızca altyazı metni gider. Silmek için boş kaydedin.")
 				}
 				is CompanionSettings.Spec.Choice ->
 				{

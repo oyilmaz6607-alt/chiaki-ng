@@ -66,4 +66,38 @@ object LumaCrop
 		}
 		out.fill(128.toByte(), dstW * dstH, nv21Size(dstW, dstH))
 	}
+
+	/**
+	 * Ucuz karşıtlık germe: ilk [count] baytın %1 ve %99 yüzdelikleri 0..255'e yayılır (yalnızca aralık
+	 * dar ise; zaten tam aralıktaysa dokunulmaz). Soluk/yarı saydam zemindeki altyazılarda ML Kit'e yardımcı olur.
+	 */
+	fun stretchContrast(buf: ByteArray, count: Int, minRangeToSkip: Int = 200)
+	{
+		if(count <= 0)
+			return
+		val hist = IntArray(256)
+		for(i in 0 until count)
+			hist[buf[i].toInt() and 0xFF]++
+		val cut = count / 100
+		var lo = 0
+		var acc = 0
+		while(lo < 255 && acc + hist[lo] <= cut)
+		{
+			acc += hist[lo]
+			lo++
+		}
+		var hi = 255
+		acc = 0
+		while(hi > 0 && acc + hist[hi] <= cut)
+		{
+			acc += hist[hi]
+			hi--
+		}
+		val range = hi - lo
+		if(range >= minRangeToSkip || range < 16)
+			return
+		val lut = ByteArray(256) { v -> (((v - lo) * 255) / range).coerceIn(0, 255).toByte() }
+		for(i in 0 until count)
+			buf[i] = lut[buf[i].toInt() and 0xFF]
+	}
 }

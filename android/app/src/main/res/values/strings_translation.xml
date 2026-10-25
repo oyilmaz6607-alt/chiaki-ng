@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL -->
+<!-- Çeviri motoru ayarları. Anahtarlar subtitle/TranslationSettings ve companion/CompanionSettings ile aynı olmalı. -->
+<resources>
+    <string name="preferences_category_title_translation">Çeviri</string>
+
+    <string name="preferences_translation_engine_key" translatable="false">subtitle_translation_engine</string>
+    <string name="preferences_translation_engine_title">Çeviri motoru</string>
+    <string-array name="translation_engine_entries">
+        <item>Cihaz içi (ücretsiz, çevrimdışı)</item>
+        <item>Gemini (daha doğru, internet gerekir)</item>
+    </string-array>
+    <string-array name="translation_engine_values" translatable="false">
+        <item>mlkit</item>
+        <item>gemini</item>
+    </string-array>
+    <string name="preferences_translation_engine_no_key">%1$s — API anahtarı girilmedi, cihaz içi çeviri kullanılıyor</string>
+
+    <string name="preferences_gemini_api_key_key" translatable="false">subtitle_gemini_api_key</string>
+    <string name="preferences_gemini_api_key_title">Gemini API anahtarı</string>
+    <string name="preferences_gemini_api_key_empty">Girilmedi. Ücretsiz anahtar: aistudio.google.com/apikey</string>
+    <string name="preferences_gemini_api_key_set">Kayıtlı: %1$s</string>
+    <string name="preferences_gemini_api_key_dialog">Kendi Gemini API anahtarınızı yapıştırın (aistudio.google.com/apikey adresinden ücretsiz alınır). Silmek için boş bırakın. Gemini\'ye yalnızca altyazı metni gönderilir, görüntü gönderilmez.</string>
+    <string name="preferences_gemini_api_key_invalid">Anahtar geçersiz görünüyor (yalnızca harf, rakam, - ve _ olmalı).</string>
+
+    <string name="preferences_gemini_model_key" translatable="false">subtitle_gemini_model</string>
+    <string name="preferences_gemini_model_title">Gemini modeli</string>
+    <string-array name="gemini_model_entries">
+        <item>Gemini 3.5 Flash-Lite (en hızlı, önerilen)</item>
+        <item>Gemini 3.1 Flash-Lite</item>
+        <item>Gemini 3.6 Flash (daha doğru, biraz yavaş)</item>
+        <item>Gemini 3.8 Flash (en doğru, en yavaş)</item>
+    </string-array>
+    <string-array name="gemini_model_values" translatable="false">
+        <item>gemini-3.5-flash-lite</item>
+        <item>gemini-3.1-flash-lite</item>
+        <item>gemini-3.6-flash</item>
+        <item>gemini-3.8-flash</item>
+    </string-array>
+
+    <string name="preferences_translation_draft_first_key" translatable="false">subtitle_translation_draft_first</string>
+    <string name="preferences_translation_draft_first_title">Önce hızlı çeviriyi göster</string>
+    <string name="preferences_translation_draft_first_summary">Cihaz içi çeviri hemen görünür, Gemini\'nin daha doğru çevirisi gelince yerine yazılır. Kapalıysa yalnızca Gemini çevirisi gösterilir (biraz daha geç).</string>
+
+    <string name="preferences_gemini_test_key" translatable="false">subtitle_gemini_test</string>
+    <string name="preferences_gemini_test_title">Gemini anahtarını test et</string>
+    <string name="preferences_gemini_test_summary">Küçük bir deneme çevirisi gönderir</string>
+    <string name="gemini_test_sample">Stay close, boy. We are not alone here.</string>
+    <string name="gemini_test_running">Gemini deneniyor…</string>
+    <string name="gemini_test_ok">Gemini çalışıyor (%1$d ms): %2$s</string>
+    <string name="gemini_test_failed">Gemini hatası: %1$s</string>
+    <string name="gemini_test_no_key">Önce Gemini API anahtarını girin.</string>
+</resources>

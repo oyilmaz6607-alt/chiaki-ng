@@ -141,7 +141,7 @@ section.panel.active { display: block; }
 /* Formlar */
 label.field { display: block; margin-bottom: 14px; }
 label.field > span { display: block; font-weight: 600; margin-bottom: 6px; }
-input[type="text"], input[type="tel"], select {
+input[type="text"], input[type="tel"], input[type="password"], select {
 	width: 100%; min-height: var(--tap); padding: 12px 14px; border-radius: 14px;
 	border: 1px solid var(--outline-strong); background: var(--surface-deep); color: var(--text);
 	font-size: 17px; -webkit-appearance: none; appearance: none;
@@ -224,6 +224,9 @@ input[type="range"]::-moz-range-thumb { width: 26px; height: 26px; border-radius
 .switch i::after { content: ""; position: absolute; left: 4px; top: 4px; width: 26px; height: 26px; border-radius: 50%; background: var(--muted); transition: transform 0.15s, background 0.15s; }
 .switch input:checked + i { background: var(--accent); border-color: var(--accent); }
 .switch input:checked + i::after { transform: translateX(24px); background: var(--on-accent); }
+.secret-row { display: flex; gap: 8px; }
+.secret-row input { flex: 1; min-width: 0; }
+.secret-row .btn { width: auto; flex: none; min-height: var(--tap); font-size: 15px; padding: 10px 14px; }
 .saved { font-size: 13px; color: var(--muted); min-height: 20px; text-align: right; margin-top: -4px; }
 .saved.ok { color: var(--ready); }
 .saved.err { color: var(--danger); }
@@ -686,7 +689,8 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 		subtitle_caption_font: "Yazı",
 		subtitle_caption_bg_color: "Arka plan",
 		subtitle_caption_position: "Konum ve yerleşim",
-		subtitle_capture_percent: "Okuma (tarama)"
+		subtitle_capture_percent: "Okuma (tarama)",
+		subtitle_translation_engine: "Çeviri"
 	};
 
 	function loadSettings() {
@@ -725,6 +729,10 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 				input = el("input", { type: "checkbox", id: "in-" + s.key, role: "switch", "aria-label": s.title });
 				input.addEventListener("change", function () { queue(s.key, input.checked); });
 				head.appendChild(el("label", { cls: "switch" }, [input, el("i")]));
+			} else if (s.type === "secret") {
+				// Gizli değer (API anahtarı): TV yalnızca maskeli hâlini gönderir; yazılan değer yalnızca
+				// "Kaydet"e basınca gönderilir, otomatik kaydedilmez ve sayfada saklanmaz.
+				buildSecret(s, head, box);
 			} else if (SWATCH_KEYS[s.key]) {
 				var sw = el("div", { cls: "swatches", id: "in-" + s.key });
 				s.options.forEach(function (o) {
@@ -747,6 +755,48 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 			root.appendChild(box);
 		});
 		controlsBuilt = true;
+	}
+
+	function buildSecret(s, head, box) {
+		var input = el("input", { type: "password", id: "in-" + s.key, autocomplete: "off", autocapitalize: "off",
+			autocorrect: "off", spellcheck: "false", maxlength: String(s.maxLength || 200), "aria-label": s.title, cls: "mono" });
+		var saveBtn = el("button", { type: "button", cls: "btn", text: "Kaydet" });
+		var clearBtn = el("button", { type: "button", cls: "btn ghost", text: "Sil" });
+		function send(val) {
+			var body = {};
+			body[s.key] = val;
+			setSaved("", "Kaydediliyor…");
+			saving = true;
+			api("POST", "/api/settings", body).then(function (data) {
+				saving = false;
+				if (data.ok) {
+					input.value = "";
+					if (data.values) values = mergeValues(values, data.values);
+					syncControls();
+					setSaved("ok", val ? "Anahtar kaydedildi" : "Anahtar silindi");
+				} else setSaved("err", data.error || "Kaydedilemedi");
+			});
+		}
+		saveBtn.addEventListener("click", function () {
+			var val = input.value.replace(/\s+/g, "");
+			if (!val) { setSaved("err", "Önce anahtarı yapıştırın."); return; }
+			send(val);
+		});
+		clearBtn.addEventListener("click", function () {
+			if (!window.confirm("Kayıtlı anahtar silinsin mi?")) return;
+			send("");
+		});
+		head.appendChild(el("span", { cls: "muted small", id: "lbl-" + s.key }));
+		box.appendChild(el("div", { cls: "secret-row" }, [input, saveBtn, clearBtn]));
+		if (s.help) box.appendChild(el("div", { cls: "help", text: s.help }));
+	}
+
+	function mergeValues(a, b) {
+		var r = {};
+		var k;
+		for (k in a) if (Object.prototype.hasOwnProperty.call(a, k)) r[k] = a[k];
+		for (k in b) if (Object.prototype.hasOwnProperty.call(b, k) && !Object.prototype.hasOwnProperty.call(pending, k)) r[k] = b[k];
+		return r;
 	}
 
 	function specFor(key) {
@@ -776,6 +826,10 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 				$("out-" + s.key).textContent = v + (UNITS[s.key] || "");
 			} else if (s.type === "bool") {
 				input.checked = !!v;
+			} else if (s.type === "secret") {
+				var masked = values[s.key] ? String(values[s.key]) : "";
+				$("lbl-" + s.key).textContent = masked ? "Kayıtlı: " + masked : "Girilmedi";
+				input.placeholder = masked ? "Değiştirmek için yeni anahtarı yapıştırın" : "AIza…";
 			} else if (SWATCH_KEYS[s.key]) {
 				markSwatch(s.key, v);
 			} else {

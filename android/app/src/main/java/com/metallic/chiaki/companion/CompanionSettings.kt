@@ -2,6 +2,8 @@
 
 package com.metallic.chiaki.companion
 
+import com.metallic.chiaki.subtitle.TranslationSettings
+
 /**
  * AltyazıTR telefon kumandası: telefondan değiştirilebilen ayarların izin listesi ve doğrulaması.
  * Android'e bağımlı değildir.
@@ -20,7 +22,13 @@ object CompanionSettings
 		/** SwitchPreference: putBoolean. */
 		class Bool(key: String, val default: Boolean): Spec(key)
 		/** ListPreference: putString, yalnızca listedeki değerler. */
-		class Choice(key: String, val options: List<String>, val default: String): Spec(key)
+		open class Choice(key: String, val options: List<String>, val default: String): Spec(key)
+		/**
+		 * Gizli metin (API anahtarı): putString. GET yanıtında asla açık değeri değil, yalnızca maskeli hâli döner.
+		 * Boş dizge = sil. Seçenek listesi yoktur; [Choice]'tan türetilmesinin tek nedeni Spec üzerindeki
+		 * mevcut `when` ifadelerinin kapsayıcı kalmasıdır — `when` içinde her zaman Choice'tan ÖNCE eşleştirin.
+		 */
+		class Secret(key: String, val maxLength: Int, val validate: (String) -> String?): Choice(key, emptyList(), "")
 	}
 
 	sealed class Value
@@ -43,6 +51,10 @@ object CompanionSettings
 	const val KEY_MAX_WIDTH = "subtitle_caption_max_width"
 	const val KEY_CAPTURE_PERCENT = "subtitle_capture_percent"
 	const val KEY_INTERVAL_MS = "subtitle_interval_ms"
+	const val KEY_TRANSLATION_ENGINE = TranslationSettings.KEY_ENGINE
+	const val KEY_GEMINI_API_KEY = TranslationSettings.KEY_GEMINI_API_KEY
+	const val KEY_GEMINI_MODEL = TranslationSettings.KEY_GEMINI_MODEL
+	const val KEY_DRAFT_FIRST = TranslationSettings.KEY_DRAFT_FIRST
 
 	/** İstek gövdesinde bu alan true ise görünüm ayarları varsayılana döner (tarama ayarları korunur). */
 	const val RESET_FIELD = "_reset"
@@ -68,13 +80,21 @@ object CompanionSettings
 		Spec.IntRange(KEY_MAX_WIDTH, 50, 100, 80, 5),
 		Spec.Choice(KEY_LINE_SPACING, LINE_SPACINGS, "1.1"),
 		Spec.IntRange(KEY_CAPTURE_PERCENT, 10, 100, 35, 5),
-		Spec.IntRange(KEY_INTERVAL_MS, 150, 1500, 300, 50)
+		Spec.IntRange(KEY_INTERVAL_MS, 150, 1500, 300, 50),
+		Spec.Choice(KEY_TRANSLATION_ENGINE, TranslationSettings.ENGINES, TranslationSettings.ENGINE_MLKIT),
+		Spec.Secret(KEY_GEMINI_API_KEY, TranslationSettings.API_KEY_MAX_LENGTH) { TranslationSettings.normalizeApiKey(it) },
+		Spec.Choice(KEY_GEMINI_MODEL, TranslationSettings.MODELS, TranslationSettings.DEFAULT_MODEL),
+		Spec.Bool(KEY_DRAFT_FIRST, TranslationSettings.DEFAULT_DRAFT_FIRST)
 	)
+
+	/** Çeviri ayarları: görünüm sıfırlamasında silinmez. */
+	val TRANSLATION_KEYS: Set<String> = setOf(KEY_TRANSLATION_ENGINE, KEY_GEMINI_API_KEY, KEY_GEMINI_MODEL, KEY_DRAFT_FIRST)
 
 	private val byKey: Map<String, Spec> = SPECS.associateBy { it.key }
 
 	/** Sıfırlamada silinecek görünüm anahtarları (tarama alanı/aralığı hariç). */
-	val STYLE_KEYS: List<String> = SPECS.map { it.key }.filter { it != KEY_CAPTURE_PERCENT && it != KEY_INTERVAL_MS }
+	val STYLE_KEYS: List<String> = SPECS.map { it.key }
+		.filter { it != KEY_CAPTURE_PERCENT && it != KEY_INTERVAL_MS && it !in TRANSLATION_KEYS }
 
 	fun spec(key: String): Spec? = byKey[key]
 
@@ -135,6 +155,7 @@ object CompanionSettings
 			"false" -> Value.BoolValue(false)
 			else -> null
 		}
+		is Spec.Secret -> (raw as? String)?.takeIf { it.length <= spec.maxLength }?.let(spec.validate)?.let { Value.StringValue(it) }
 		is Spec.Choice -> (raw as? String)?.let { s ->
 			// Renkler büyük/küçük harf duyarsız kabul edilir ama listedeki yazımla kaydedilir.
 			spec.options.firstOrNull { it.equals(s.trim(), ignoreCase = true) }
@@ -158,6 +179,7 @@ object CompanionSettings
 	{
 		is Spec.IntRange -> "must be an integer in ${spec.min}..${spec.max}"
 		is Spec.Bool -> "must be boolean"
+		is Spec.Secret -> "invalid value"
 		is Spec.Choice -> "must be one of ${spec.options.joinToString(", ")}"
 	}
 

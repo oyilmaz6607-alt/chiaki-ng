@@ -6,7 +6,9 @@ import android.app.Activity
 import android.content.Intent
 import android.content.res.Resources
 import android.os.Bundle
+import android.os.SystemClock
 import android.text.InputType
+import android.widget.Toast
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -18,6 +20,11 @@ import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.getDatabase
 import com.metallic.chiaki.common.importSettingsFromUri
 import com.metallic.chiaki.subtitle.CaptionPreviewPreference
+import com.metallic.chiaki.subtitle.GeminiClient
+import com.metallic.chiaki.subtitle.TranslationSettings
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class DataStore(val preferences: Preferences): PreferenceDataStore()
 {
@@ -58,6 +65,8 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.fpsKey -> preferences.fps.value
 		preferences.bitrateKey -> preferences.bitrate?.toString() ?: ""
 		preferences.codecKey -> preferences.codec.value
+		preferences.translationEngineKey -> preferences.translationEngineChoice
+		preferences.geminiModelKey -> preferences.geminiModel
 		else -> preferences.sharedPreferences.getString(key, defValue)
 	}
 
@@ -76,6 +85,12 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 				preferences.fps = fps
 			}
 			preferences.bitrateKey -> preferences.bitrate = value?.toIntOrNull()
+			preferences.geminiApiKeyKey ->
+			{
+				// Geçersiz biçim kaydedilmez (SettingsFragment önceden uyarır).
+				val key = TranslationSettings.normalizeApiKey(value ?: "") ?: return
+				preferences.sharedPreferences.edit().putString(preferences.geminiApiKeyKey, key).apply()
+			}
 			preferences.codecKey ->
 			{
 				val codec = Preferences.Codec.values().firstOrNull { it.value == value } ?: return
@@ -135,6 +150,8 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 			it.entries = Preferences.codecAll.map { codec -> getString(codec.title) }.toTypedArray()
 		}
 
+		setupTranslationPreferences(preferences)
+
 		val registeredHostsPreference = preferenceScreen.findPreference<Preference>("registered_hosts")
 		viewModel.registeredHostsCount.observe(this, Observer {
 			registeredHostsPreference?.summary = getString(R.string.preferences_registered_hosts_summary, it)
@@ -142,6 +159,75 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 
 		preferenceScreen.findPreference<Preference>(getString(R.string.preferences_export_settings_key))?.setOnPreferenceClickListener { exportSettings(); true }
 		preferenceScreen.findPreference<Preference>(getString(R.string.preferences_import_settings_key))?.setOnPreferenceClickListener { importSettings(); true }
+	}
+
+	private fun setupTranslationPreferences(preferences: Preferences)
+	{
+		val enginePreference = preferenceScreen.findPreference<ListPreference>(preferences.translationEngineKey)
+		enginePreference?.summaryProvider = Preference.SummaryProvider<ListPreference> {
+			val label = it.entry?.toString() ?: ""
+			if(preferences.translationEngineChoice == TranslationSettings.ENGINE_GEMINI && preferences.geminiApiKey.isEmpty())
+				getString(R.string.preferences_translation_engine_no_key, label)
+			else
+				label
+		}
+		preferenceScreen.findPreference<EditTextPreference>(preferences.geminiApiKeyKey)?.let { pref ->
+			// Anahtar ekranda asla açık gösterilmez.
+			pref.summaryProvider = Preference.SummaryProvider<EditTextPreference> {
+				val key = preferences.geminiApiKey
+				if(key.isEmpty()) getString(R.string.preferences_gemini_api_key_empty)
+				else getString(R.string.preferences_gemini_api_key_set, TranslationSettings.maskApiKey(key))
+			}
+			pref.setOnBindEditTextListener { editText ->
+				editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+				editText.isSingleLine = true
+				editText.setText(preferences.geminiApiKey)
+				editText.setSelection(editText.text.length)
+			}
+			pref.setOnPreferenceChangeListener { _, newValue ->
+				val ok = TranslationSettings.normalizeApiKey(newValue as? String ?: "") != null
+				if(!ok)
+					Toast.makeText(requireContext(), R.string.preferences_gemini_api_key_invalid, Toast.LENGTH_LONG).show()
+				else
+					// Motor özeti ("anahtar girilmedi") yenilensin.
+					listView?.post { enginePreference?.let { e -> e.summaryProvider = e.summaryProvider } }
+				ok
+			}
+		}
+		preferenceScreen.findPreference<Preference>(getString(R.string.preferences_gemini_test_key))?.setOnPreferenceClickListener {
+			testGemini(preferences)
+			true
+		}
+	}
+
+	/** Küçük bir deneme çevirisi: süre ve sonuç (veya hata) kısa mesajla gösterilir. */
+	private fun testGemini(preferences: Preferences)
+	{
+		val context = context ?: return
+		val key = preferences.geminiApiKey
+		if(key.isEmpty())
+		{
+			Toast.makeText(context, R.string.gemini_test_no_key, Toast.LENGTH_LONG).show()
+			return
+		}
+		val model = preferences.geminiModel
+		val sample = getString(R.string.gemini_test_sample)
+		Toast.makeText(context, R.string.gemini_test_running, Toast.LENGTH_SHORT).show()
+		lifecycleScope.launch {
+			val started = SystemClock.uptimeMillis()
+			val message = try
+			{
+				// Test için daha uzun süre tanınır (ilk TLS bağlantısı yavaş olabilir).
+				val text = withContext(Dispatchers.IO) { GeminiClient(6000, 8000).translate(key, model, sample, emptyList()) }
+				getString(R.string.gemini_test_ok, (SystemClock.uptimeMillis() - started).toInt(), text)
+			}
+			catch(e: Exception)
+			{
+				getString(R.string.gemini_test_failed, e.message ?: e.javaClass.simpleName)
+			}
+			val ctx = this@SettingsFragment.context ?: return@launch
+			Toast.makeText(ctx, message, Toast.LENGTH_LONG).show()
+		}
 	}
 
 	override fun getTitle(resources: Resources): String = resources.getString(R.string.title_settings)

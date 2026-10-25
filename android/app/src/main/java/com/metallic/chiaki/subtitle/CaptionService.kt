@@ -23,7 +23,6 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
-import android.util.LruCache
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -46,6 +45,7 @@ import com.metallic.chiaki.companion.CompanionServer
 import com.metallic.chiaki.lib.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.tasks.await
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.max
@@ -79,6 +79,18 @@ class CaptionService : Service()
 		 * ~16 px altında hata yapmaya başlıyor). Asıl kazanç zaten tam kare yerine yalnızca alt bölgeyi okumak.
 		 */
 		private const val OCR_MAX_WIDTH = 1280
+		/**
+		 * Kesilmiş bölge son OCR'dakiyle aynıysa (aynı kutu, imza değişmemiş) OCR tekrarlanmaz; yine de en geç
+		 * bu süre sonra bir kez yeniden okunur.
+		 */
+		private const val SAME_CROP_RECHECK_MS = 3000L
+		/** Bantta hiç yazı izi yokken OCR atlanır; ama her bu kadar ardışık "boş" kararda bir tüm bant okunur. */
+		private const val EMPTY_VERIFY_EVERY = 4
+		/** Daktilo büyümesinde Gemini'ye her harfte gitmemek için bekleme (ms). */
+		private const val GROWN_GEMINI_DEBOUNCE_MS = 250L
+		private const val CACHE_FILE = "translation_cache.json"
+		private const val CACHE_SAVE_MS = 30_000L
+		private const val MAX_CONTEXT_PAIRS = 4
 		/** Gösterilen altyazının kutusundaki hücrelerin bu oranı değiştiyse boş OCR'da hemen gizle. */
 		private const val HIDE_BOX_CHANGE = 0.2f
 		private const val MOVE_EPS = 0.01f
@@ -113,11 +125,11 @@ class CaptionService : Service()
 		}
 	}
 
-	/** OCR'a verilecek iş: altyazı bölgesinin gri NV21 hâli + kareye göre konumu. */
+	/** OCR'a verilecek iş: altyazı bölgesinden kesilen yazı kutusunun gri NV21 hâli + kareye göre konumu. */
 	private class OcrJob(
 		val nv21: ByteArray,
-		val width: Int,
-		val height: Int,
+		/** Bant içindeki kesim ve OCR görüntüsünün boyutu; null = OCR yok (bantta yazı izi bulunmadı). */
+		val crop: OcrCrop?,
 		/** OCR'a giden karedeki bölgenin değişim imzası. */
 		val signature: IntArray,
 		val frameW: Int,
@@ -126,7 +138,9 @@ class CaptionService : Service()
 		val regionTop: Int,
 		val regionH: Int,
 		/** Karenin ImageReader'dan alındığı an (uptime ms) — uçtan uca ölçüm için. */
-		val frameAt: Long
+		val frameAt: Long,
+		/** Bu kesimi tüm bant okunarak "yazı yok" kararını doğrulamak için mi yapıldı? */
+		val verifyEmpty: Boolean = false
 	)
 	{
 		fun toRegionY(frameY: Float) = ((frameY * frameH - regionTop) / regionH).coerceIn(0f, 1f)
@@ -144,8 +158,21 @@ class CaptionService : Service()
 			.setTargetLanguage(TranslateLanguage.TURKISH)
 			.build()
 	)
-	private val cache = LruCache<String, String>(300)
+	/** Motor başına çeviri önbelleği (bellek + diskte JSON). */
+	private val cache = TranslationCache(2000)
+	private val gemini = GeminiClient()
+	private val geminiBackoff = GeminiBackoff()
 	private val tracker = SubtitleTracker()
+	private val refine = RefineState()
+	/** Gemini'ye bağlam olarak gönderilen son altyazı çiftleri (ana iş parçacığı). */
+	private val contextPairs = ArrayDeque<SubtitlePair>()
+	private var cacheSaveJob: Job? = null
+
+	// ---- çeviri ayarları (ana iş parçacığı; ayar değişince yeniden okunur)
+	private var engine = TranslationSettings.ENGINE_MLKIT
+	private var geminiKey = ""
+	private var geminiModel = TranslationSettings.DEFAULT_MODEL
+	private var draftFirst = TranslationSettings.DEFAULT_DRAFT_FIRST
 
 	// ---- kare iş parçacığında kullanılanlar
 	private val detector = FrameChangeDetector()
@@ -159,14 +186,23 @@ class CaptionService : Service()
 	private var regionY = ByteArray(0)
 	private var nv21 = ByteArray(0)
 	private val signature = IntArray(detector.size)
+	private val estimator = TextRegionEstimator()
+	/** Son OCR'a giden kesim ve içeriğinin imzası: aynı içerik tekrar okunmasın. */
+	private var lastCrop: OcrCrop? = null
+	private var lastCropSig = IntArray(detector.size)
+	private var cropSig = IntArray(detector.size)
+	private var lastRealOcrAt = 0L
+	private var emptyStreak = 0
+	/** "Yazı izi yok → OCR atla" kararına güven. Tüm bant okunup yine de altyazı bulunursa kapanır. */
+	@Volatile private var trustEmptyRegion = true
 
 	// ---- ana iş parçacığında kullanılanlar
 	/** Gösterilen altyazının bölge imzası ve kutusu (bölgeye göre 0..1): kaybolduğunu hızlı anlamak için. */
 	private var shownSignature: IntArray? = null
 	private var shownBox: FloatArray? = null
-	/** Her Show/Hide'da artar; çeviri dönene kadar yenisi geldiyse eski çeviri gösterilmez. */
-	private var captionGen = 0
 	private var placedBox: SubtitleCandidate? = null
+	/** Ekrandaki (veya çevirisi beklenen) altyazının son bilinen kutusu: geç gelen çeviri buraya yerleşir. */
+	private var currentCandidate: SubtitleCandidate? = null
 
 	private lateinit var windowManager: WindowManager
 	private var captionView: TextView? = null
@@ -186,6 +222,15 @@ class CaptionService : Service()
 	private var ocrRuns = 0
 	private var ocrMs = 0L
 	private var e2eMs = 0L
+	private var e2eFinalMs = 0L
+	@Volatile private var cropMs = 0L
+	@Volatile private var cropInfo = ""
+	@Volatile private var ocrSkippedSame = 0
+	@Volatile private var ocrSkippedEmpty = 0
+	private var mlkitMs = 0L
+	private var geminiMs = 0L
+	private var shownEngine = ""
+	private var geminiNote = ""
 	private var lastOcr = ""
 	@Volatile private var lastError = ""
 
@@ -194,6 +239,7 @@ class CaptionService : Service()
 	// ---- telefon kumandası / ayarlar ekranı: görünüm değişince canlı uygula (ana iş parçacığı)
 	private var styleKeys: Set<String> = emptySet()
 	private var scanKeys: Set<String> = emptySet()
+	private var translationKeys: Set<String> = emptySet()
 	private var prefsListenerRegistered = false
 	private var companionHeld = false
 	/** Ekranda gerçek altyazı yokken stil değişince kısa süre örnek cümle gösterilir. */
@@ -210,6 +256,8 @@ class CaptionService : Service()
 		}
 		if(key == null || key in scanKeys)
 			applyScanSettings()
+		if(key == null || key in translationKeys)
+			applyTranslationSettings()
 	}
 
 	override fun onBind(intent: Intent?): IBinder? = null
@@ -246,7 +294,9 @@ class CaptionService : Service()
 		// ve hiçbir değişiklik yokken yapılan yedek OCR sıklığı bundan türetilir.
 		val interval = prefs.subtitleIntervalMs.toLong()
 		schedulerIntervalMs = interval
-		scheduler = OcrScheduler(detector, fallbackMs = max(1000L, interval * 3), minGapMs = interval / 3)
+		scheduler = newScheduler(interval)
+		applyTranslationSettings()
+		loadCache()
 		addOverlays()
 		status(getString(R.string.caption_status_connecting))
 		startSession(connectInfo)
@@ -297,6 +347,11 @@ class CaptionService : Service()
 				reader.close()
 		}
 		thread?.quitSafely()
+		if(cache.dirty)
+		{
+			val file = cacheFile()
+			Thread { cache.saveTo(file) }.start()
+		}
 		recognizer.close()
 		translator.close()
 		removeOverlays()
@@ -311,6 +366,7 @@ class CaptionService : Service()
 			return
 		styleKeys = prefs.subtitleCaptionStyleKeys
 		scanKeys = setOf(getString(R.string.preferences_subtitle_area_key), getString(R.string.preferences_subtitle_speed_key))
+		translationKeys = prefs.translationKeys
 		prefs.sharedPreferences.registerOnSharedPreferenceChangeListener(prefsListener)
 		prefsListenerRegistered = true
 	}
@@ -323,7 +379,54 @@ class CaptionService : Service()
 		if(interval != schedulerIntervalMs)
 		{
 			schedulerIntervalMs = interval
-			scheduler = OcrScheduler(detector, fallbackMs = max(1000L, interval * 3), minGapMs = interval / 3)
+			scheduler = newScheduler(interval)
+		}
+	}
+
+	/**
+	 * Değişim görülünce OCR hemen başlar (en fazla 50 ms boşluk; OCR sürerken zaten yenisi başlamaz).
+	 * Ayardaki aralık artık yalnızca hiçbir değişiklik yokken yapılan yedek okumanın sıklığını belirler.
+	 */
+	private fun newScheduler(interval: Long) =
+		OcrScheduler(detector, fallbackMs = max(1000L, interval * 3), minGapMs = min(50L, interval / 3))
+
+	private fun applyTranslationSettings()
+	{
+		val before = engine to geminiKey
+		engine = prefs.translationEngine
+		geminiKey = prefs.geminiApiKey
+		geminiModel = prefs.geminiModel
+		draftFirst = prefs.translationDraftFirst
+		if(before != (engine to geminiKey))
+		{
+			geminiBackoff.onSuccess()
+			geminiNote = ""
+		}
+		if(engine == TranslationSettings.ENGINE_GEMINI)
+		{
+			// Model inmemiş olsa da Gemini ile çalışılabilir.
+			processingEnabled = processingEnabled || isRunning
+			val key = geminiKey
+			val model = geminiModel
+			scope.launch(Dispatchers.IO) { gemini.warmUp(key, model) }
+		}
+	}
+
+	private fun cacheFile() = File(filesDir, CACHE_FILE)
+
+	private fun loadCache()
+	{
+		scope.launch(Dispatchers.IO) { cache.loadFrom(cacheFile()) }
+	}
+
+	/** Önbellek değiştiyse en geç [CACHE_SAVE_MS] sonra diske yazılır. */
+	private fun scheduleCacheSave()
+	{
+		if(cacheSaveJob?.isActive == true)
+			return
+		cacheSaveJob = scope.launch {
+			delay(CACHE_SAVE_MS)
+			withContext(Dispatchers.IO) { if(cache.dirty) cache.saveTo(cacheFile()) }
 		}
 	}
 
@@ -409,7 +512,7 @@ class CaptionService : Service()
 			is ConnectedEvent ->
 			{
 				connected = true
-				status(if(modelReady) null else getString(R.string.subtitle_model_downloading))
+				status(if(modelReady || engine == TranslationSettings.ENGINE_GEMINI) null else getString(R.string.subtitle_model_downloading))
 			}
 			is QuitEvent ->
 			{
@@ -446,7 +549,11 @@ class CaptionService : Service()
 			catch(e: Exception)
 			{
 				lastError = "Model: ${e.message}"
-				status(getString(R.string.subtitle_model_failed))
+				// Gemini ile cihaz içi model olmadan da çalışılır; model arka planda yeniden denenir.
+				if(engine == TranslationSettings.ENGINE_GEMINI)
+					processingEnabled = true
+				else
+					status(getString(R.string.subtitle_model_failed))
 				delay(10_000)
 			}
 		}
@@ -523,13 +630,61 @@ class CaptionService : Service()
 		if(!scheduler.shouldRun(signature, now, ocrBusy.get()))
 			return
 
-		val (dstW, dstH) = LumaCrop.targetSize(frameW, regionH, OCR_MAX_WIDTH)
-		val size = LumaCrop.nv21Size(dstW, dstH)
+		// 1) Yazı kutusu: tüm bant yerine yalnızca yazı izi olan bölge (+ pay) okunur.
+		val cropStart = SystemClock.uptimeMillis()
+		val region = estimator.estimate(regionY, 0, frameW, frameW, regionH)
+		var verifyEmpty = false
+		if(region == null)
+		{
+			if(trustEmptyRegion && emptyStreak < EMPTY_VERIFY_EVERY)
+			{
+				// Bantta yazı izi yok: OCR'sız "altyazı yok" sonucu (gizleme kararı yine çalışır).
+				emptyStreak++
+				ocrSkippedEmpty++
+				lastCrop = null
+				cropMs = SystemClock.uptimeMillis() - cropStart
+				cropInfo = "yazı yok"
+				val job = OcrJob(nv21, null, signature.copyOf(), frameW, frameH, regionTop, regionH, now)
+				ocrBusy.set(true)
+				scope.launch { runOcr(job) }.invokeOnCompletion { ocrBusy.set(false) }
+				return
+			}
+			// Arada bir tüm bant okunur: tahminci bu oyunda yazıyı kaçırıyor olabilir.
+			verifyEmpty = true
+			emptyStreak = 0
+		}
+		else
+			emptyStreak = 0
+		val crop = estimator.toCrop(region, frameW, regionH, OCR_MAX_WIDTH)
+
+		// 2) Aynı kutu ve içeriği değişmemişse (ör. yalnızca arka plan oynadı) OCR tekrarlanmaz.
+		val cropOffset = crop.srcTop * frameW + crop.srcLeft
+		detector.computeSignature(regionY, crop.srcWidth, crop.srcHeight, frameW, cropOffset, cropSig)
+		val prev = lastCrop
+		if(!verifyEmpty && prev != null && abs(prev.srcLeft - crop.srcLeft) <= 8 && abs(prev.srcTop - crop.srcTop) <= 8 &&
+				abs(prev.srcWidth - crop.srcWidth) <= 16 && abs(prev.srcHeight - crop.srcHeight) <= 16 &&
+				!detector.isChanged(cropSig, lastCropSig) && now - lastRealOcrAt < SAME_CROP_RECHECK_MS)
+		{
+			ocrSkippedSame++
+			return
+		}
+		lastCrop = crop
+		val tmp = lastCropSig
+		lastCropSig = cropSig
+		cropSig = tmp
+		lastRealOcrAt = now
+
+		// 3) Gri NV21 (gerekirse küçültülmüş; satır yüksekliği ~32 px) + ucuz karşıtlık germe.
+		val size = LumaCrop.nv21Size(crop.dstWidth, crop.dstHeight)
 		// Tek OCR sürdüğü için (ocrBusy) bu tampon güvenle yeniden kullanılır.
 		if(nv21.size != size)
 			nv21 = ByteArray(size)
-		LumaCrop.toGrayNv21(regionY, 0, frameW, frameW, regionH, dstW, dstH, nv21)
-		val job = OcrJob(nv21, dstW, dstH, signature.copyOf(), frameW, frameH, regionTop, regionH, now)
+		LumaCrop.toGrayNv21(regionY, cropOffset, frameW, crop.srcWidth, crop.srcHeight, crop.dstWidth, crop.dstHeight, nv21)
+		LumaCrop.stretchContrast(nv21, crop.dstWidth * crop.dstHeight)
+		cropMs = SystemClock.uptimeMillis() - cropStart
+		cropInfo = "${crop.dstWidth}x${crop.dstHeight}" + (if(crop.scale < 0.99f) " ×%.2f".format(crop.scale) else "") +
+				(if((region?.lineHeight ?: 0) > 0) " satır=${region?.lineHeight}px" else "") + (if(verifyEmpty) " (tam bant)" else "")
+		val job = OcrJob(nv21, crop, signature.copyOf(), frameW, frameH, regionTop, regionH, now, verifyEmpty)
 		ocrBusy.set(true)
 		scope.launch { runOcr(job) }.invokeOnCompletion { ocrBusy.set(false) }
 	}
@@ -537,27 +692,37 @@ class CaptionService : Service()
 	/** Ana iş parçacığı. */
 	private suspend fun runOcr(job: OcrJob)
 	{
+		val crop = job.crop
+		if(crop == null)
+		{
+			try { onCandidate(null, job) } finally { ocrBusy.set(false) }
+			return
+		}
 		val started = SystemClock.uptimeMillis()
 		try
 		{
-			val input = InputImage.fromByteArray(job.nv21, job.width, job.height, 0, InputImage.IMAGE_FORMAT_NV21)
+			val input = InputImage.fromByteArray(job.nv21, crop.dstWidth, crop.dstHeight, 0, InputImage.IMAGE_FORMAT_NV21)
 			val result = recognizer.process(input).await()
 			ocrMs = SystemClock.uptimeMillis() - started
 			ocrRuns++
-			// Kutu koordinatları küçültülmüş bölgeye göre; yerleştirme için TAM kareye göre 0..1'e çevrilir.
+			// Kutu koordinatları kesilmiş (ve küçültülmüş olabilen) görüntüye göre; TAM kareye göre 0..1'e çevrilir.
 			val lines = result.textBlocks.flatMap { block ->
 				block.lines.mapNotNull { line ->
 					val box = line.boundingBox ?: return@mapNotNull null
 					OcrLine(
 						line.text,
-						box.left.toFloat() / job.width,
-						(job.regionTop + box.top.toFloat() / job.height * job.regionH) / job.frameH,
-						box.right.toFloat() / job.width,
-						(job.regionTop + box.bottom.toFloat() / job.height * job.regionH) / job.frameH
+						crop.toFrameX(box.left.toFloat(), job.frameW),
+						crop.toFrameY(box.top.toFloat(), job.regionTop, job.frameH),
+						crop.toFrameX(box.right.toFloat(), job.frameW),
+						crop.toFrameY(box.bottom.toFloat(), job.regionTop, job.frameH)
 					)
 				}
 			}
-			onCandidate(SubtitleFilter.pickSubtitle(lines), job)
+			val candidate = SubtitleFilter.pickSubtitle(lines)
+			// Tüm bant okununca altyazı çıktıysa "yazı izi yok" kararına artık güvenme.
+			if(job.verifyEmpty && candidate != null)
+				trustEmptyRegion = false
+			onCandidate(candidate, job)
 		}
 		catch(e: CancellationException)
 		{
@@ -576,7 +741,8 @@ class CaptionService : Service()
 
 	private fun onCandidate(candidate: SubtitleCandidate?, job: OcrJob)
 	{
-		lastOcr = candidate?.text ?: ""
+		if(job.crop != null || candidate != null)
+			lastOcr = candidate?.text ?: ""
 		// Gösterilen altyazının kutusundaki görüntü belirgin şekilde değiştiyse boş OCR'a hemen güven.
 		val shownSig = shownSignature
 		val box = shownBox
@@ -594,54 +760,20 @@ class CaptionService : Service()
 		{
 			is SubtitleTracker.Action.Show ->
 			{
-				val c = action.candidate
-				rememberShown(c, job)
-				val gen = ++captionGen
-				// Tamamen yeni cümle ve çevirisi hazır değil: eski Türkçe yeni İngilizcenin üstünde yanlış
-				// kalmasın. Daktilo büyümesinde (grown) eski çeviri yenisi gelene kadar kalır (titreme olmaz).
-				if(!action.grown && cache.get(SubtitleFilter.normalize(c.text)) == null)
-				{
-					captionView?.visibility = View.GONE
-					placedBox = null
-				}
-				scope.launch {
-					val turkish = try
-					{
-						translate(c.text)
-					}
-					catch(e: CancellationException)
-					{
-						throw e
-					}
-					catch(e: Exception)
-					{
-						lastError = "Çeviri: ${e.message}"
-						// Eski (artık yanlış) Türkçe ekranda kalmasın; bir sonraki değişimde yeniden denenir.
-						if(gen == captionGen)
-						{
-							tracker.reset()
-							shownSignature = null
-							shownBox = null
-							captionView?.visibility = View.GONE
-						}
-						return@launch
-					}
-					// Bu arada yeni altyazı geldi ya da gizlendi: eski çeviriyi gösterme.
-					if(gen != captionGen)
-						return@launch
-					showCaption(turkish, c)
-					e2eMs = SystemClock.uptimeMillis() - job.frameAt
-				}
+				rememberShown(action.candidate, job)
+				startTranslation(action.candidate, action.grown, job.frameAt)
 			}
 			is SubtitleTracker.Action.Keep ->
 			{
 				rememberShown(action.candidate, job)
+				currentCandidate = action.candidate
 				if(captionView?.visibility == View.VISIBLE && !previewing)
 					placeCaption(action.candidate)
 			}
 			SubtitleTracker.Action.Hide ->
 			{
-				captionGen++
+				refine.newGeneration()
+				currentCandidate = null
 				shownSignature = null
 				shownBox = null
 				placedBox = null
@@ -652,19 +784,190 @@ class CaptionService : Service()
 		}
 	}
 
+	// ---------------------------------------------------------------- çeviri: önce hızlı, sonra Gemini
+
+	/**
+	 * Ana iş parçacığı. Cihaz içi (ML Kit) çeviri hemen gösterilir; Gemini seçiliyse onun sonucu gelince
+	 * (altyazı hâlâ aynıysa) yerine yazılır. "Önce hızlı çeviri" kapalıysa yalnızca Gemini sonucu gösterilir.
+	 * Gemini hata verirse cihaz içi çeviriye dönülür.
+	 */
+	private fun startTranslation(c: SubtitleCandidate, grown: Boolean, frameAt: Long)
+	{
+		currentCandidate = c
+		val gen = refine.newGeneration()
+		val useGemini = engine == TranslationSettings.ENGINE_GEMINI && geminiKey.isNotEmpty()
+		if(useGemini)
+		{
+			cache.get(TranslationSettings.ENGINE_GEMINI, c.text)?.let {
+				display(gen, it, RefineState.Source.CACHE_GEMINI, frameAt, c.text)
+				return
+			}
+		}
+		val draft = cache.get(TranslationSettings.ENGINE_MLKIT, c.text)
+		val wantDraft = !useGemini || draftFirst
+		if(draft != null && wantDraft)
+			display(gen, draft, RefineState.Source.CACHE_MLKIT, frameAt, c.text)
+		else if(!grown)
+		{
+			// Tamamen yeni cümle ve çevirisi hazır değil: eski Türkçe yeni İngilizcenin üstünde yanlış
+			// kalmasın. Daktilo büyümesinde (grown) eski çeviri yenisi gelene kadar kalır (titreme olmaz).
+			captionView?.visibility = View.GONE
+			placedBox = null
+		}
+		if(draft == null && wantDraft && modelReady)
+			launchMlKit(gen, c.text, frameAt, isFallback = false)
+		if(!useGemini)
+		{
+			if(!modelReady)
+				lastError = "Çeviri modeli hazır değil"
+			return
+		}
+		launchGemini(gen, c.text, grown, frameAt)
+	}
+
+	private fun launchMlKit(gen: Int, english: String, frameAt: Long, isFallback: Boolean)
+	{
+		scope.launch {
+			val started = SystemClock.uptimeMillis()
+			val turkish = try
+			{
+				translator.translate(english).await()
+			}
+			catch(e: CancellationException)
+			{
+				throw e
+			}
+			catch(e: Exception)
+			{
+				lastError = "Çeviri: ${e.message}"
+				// Gemini isteği hâlâ yoldaysa taslağın hatası ekranı temizlemesin; sonucu Gemini belirler.
+				if(isFallback || engine != TranslationSettings.ENGINE_GEMINI)
+					onTranslationFailed(gen)
+				return@launch
+			}
+			mlkitMs = SystemClock.uptimeMillis() - started
+			cache.put(TranslationSettings.ENGINE_MLKIT, english, turkish)
+			if(display(gen, turkish, RefineState.Source.MLKIT, frameAt, english) && isFallback)
+				shownEngine = "cihaz içi (Gemini yerine)"
+		}
+	}
+
+	private fun launchGemini(gen: Int, english: String, grown: Boolean, frameAt: Long)
+	{
+		scope.launch {
+			if(grown)
+			{
+				// Daktilo efekti: harf harf büyüyen satır için her adımda istek atma.
+				delay(GROWN_GEMINI_DEBOUNCE_MS)
+				if(gen != refine.gen)
+					return@launch
+			}
+			val now = SystemClock.uptimeMillis()
+			if(!geminiBackoff.canTry(now))
+			{
+				geminiNote = "Gemini beklemede (${(geminiBackoff.remainingMs(now) + 999) / 1000} sn)"
+				fallbackToMlKit(gen, english, frameAt)
+				return@launch
+			}
+			val key = geminiKey
+			val model = geminiModel
+			val context = contextPairs.toList()
+			val started = SystemClock.uptimeMillis()
+			val turkish = try
+			{
+				withContext(Dispatchers.IO) { gemini.translate(key, model, english, context) }
+			}
+			catch(e: CancellationException)
+			{
+				throw e
+			}
+			catch(e: Exception)
+			{
+				geminiMs = SystemClock.uptimeMillis() - started
+				geminiBackoff.onFailure(SystemClock.uptimeMillis(), (e as? GeminiClient.GeminiException)?.httpCode ?: 0)
+				geminiNote = "Gemini hata: ${e.message?.take(80)} → cihaz içi"
+				Log.w(TAG, "Gemini failed: ${e.message}")
+				fallbackToMlKit(gen, english, frameAt)
+				return@launch
+			}
+			geminiMs = SystemClock.uptimeMillis() - started
+			geminiBackoff.onSuccess()
+			geminiNote = ""
+			cache.put(TranslationSettings.ENGINE_GEMINI, english, turkish)
+			scheduleCacheSave()
+			display(gen, turkish, RefineState.Source.GEMINI, frameAt, english)
+		}
+	}
+
+	/** Gemini sonuç vermedi: ekranda hiç çeviri yoksa cihaz içi çeviri gösterilir. */
+	private fun fallbackToMlKit(gen: Int, english: String, frameAt: Long)
+	{
+		if(gen != refine.gen || refine.shown != null)
+			return
+		val cached = cache.get(TranslationSettings.ENGINE_MLKIT, english)
+		when
+		{
+			cached != null -> display(gen, cached, RefineState.Source.CACHE_MLKIT, frameAt, english)
+			// Taslak zaten yolda (önce hızlı çeviri açık): o gelince gösterilir.
+			draftFirst && modelReady -> {}
+			modelReady -> launchMlKit(gen, english, frameAt, isFallback = true)
+			else -> onTranslationFailed(gen)
+		}
+	}
+
+	private fun onTranslationFailed(gen: Int)
+	{
+		// Eski (artık yanlış) Türkçe ekranda kalmasın; bir sonraki değişimde yeniden denenir.
+		if(gen == refine.gen && refine.shown == null)
+		{
+			tracker.reset()
+			shownSignature = null
+			shownBox = null
+			captionView?.visibility = View.GONE
+		}
+	}
+
+	/** Sonuç hâlâ güncel altyazıya aitse gösterir; true = gösterildi. */
+	private fun display(gen: Int, turkish: String, source: RefineState.Source, frameAt: Long, english: String): Boolean
+	{
+		val c = currentCandidate ?: return false
+		val wasEmpty = refine.shown == null
+		if(!refine.offer(gen, source))
+			return false
+		showCaption(turkish, c)
+		val elapsed = SystemClock.uptimeMillis() - frameAt
+		if(wasEmpty)
+			e2eMs = elapsed
+		e2eFinalMs = elapsed
+		shownEngine = when(source)
+		{
+			RefineState.Source.MLKIT -> "cihaz içi"
+			RefineState.Source.GEMINI -> "Gemini"
+			RefineState.Source.CACHE_GEMINI -> "Gemini (önbellek)"
+			RefineState.Source.CACHE_MLKIT -> "cihaz içi (önbellek)"
+		}
+		val isFinalResult = refine.isFinal(source) || engine != TranslationSettings.ENGINE_GEMINI
+		if(isFinalResult)
+			rememberContext(english, turkish)
+		return true
+	}
+
+	/** Gemini'ye bağlam: son [MAX_CONTEXT_PAIRS] altyazı. Daktilo büyümesi önceki kaydın yerine geçer. */
+	private fun rememberContext(english: String, turkish: String)
+	{
+		val last = contextPairs.lastOrNull()
+		if(last != null && (SubtitleFilter.isSameSubtitle(last.english, english) ||
+				SubtitleFilter.normalize(english).startsWith(SubtitleFilter.normalize(last.english))))
+			contextPairs.removeLast()
+		contextPairs.addLast(SubtitlePair(english, turkish))
+		while(contextPairs.size > MAX_CONTEXT_PAIRS)
+			contextPairs.removeFirst()
+	}
+
 	private fun rememberShown(c: SubtitleCandidate, job: OcrJob)
 	{
 		shownSignature = job.signature
 		shownBox = floatArrayOf(c.left, job.toRegionY(c.top), c.right, job.toRegionY(c.bottom))
-	}
-
-	private suspend fun translate(english: String): String
-	{
-		val key = SubtitleFilter.normalize(english)
-		cache.get(key)?.let { return it }
-		val turkish = translator.translate(english).await()
-		cache.put(key, turkish)
-		return turkish
 	}
 
 	// ---------------------------------------------------------------- ekran üstü katman
@@ -840,8 +1143,11 @@ class CaptionService : Service()
 	}
 
 	private fun debugLine() =
-		"bağlı=$connected model=${if(modelReady) "hazır" else "yok"} kare=$frames örnek=$sampled ocr=$ocrRuns" +
-				"\nOCR=${ocrMs} ms  uçtan uca=${e2eMs} ms" +
+		"bağlı=$connected model=${if(modelReady) "hazır" else "yok"} motor=$engine kare=$frames örnek=$sampled ocr=$ocrRuns" +
+				" atlanan(aynı/boş)=$ocrSkippedSame/$ocrSkippedEmpty" +
+				"\nkes=${cropMs} ms [$cropInfo]  OCR=${ocrMs} ms  mlkit=${mlkitMs} ms  gemini=${geminiMs} ms" +
+				"\nilk çeviri=${e2eMs} ms  son=${e2eFinalMs} ms  gösterilen: ${shownEngine.ifEmpty { "-" }}" +
+				(if(geminiNote.isNotEmpty()) "\n$geminiNote" else "") +
 				(if(lastOcr.isNotEmpty()) "\nOkunan: ${lastOcr.take(70)}" else "") +
 				(if(lastError.isNotEmpty()) "\nHata: ${lastError.take(100)}" else "")
 

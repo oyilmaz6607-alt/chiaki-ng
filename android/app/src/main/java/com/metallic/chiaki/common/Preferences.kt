@@ -13,6 +13,7 @@ import com.metallic.chiaki.lib.ConnectVideoProfile
 import com.metallic.chiaki.lib.VideoFPSPreset
 import com.metallic.chiaki.lib.VideoResolutionPreset
 import com.metallic.chiaki.subtitle.CaptionStyle
+import com.metallic.chiaki.subtitle.TranslationSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -157,6 +158,35 @@ class Preferences(context: Context)
 		R.string.preferences_caption_position_key,
 		R.string.preferences_caption_max_width_key
 	).map { resources.getString(it) }.toSet()
+
+	// ---- Çeviri motoru (bkz. subtitle/TranslationSettings)
+
+	val translationEngineKey get() = resources.getString(R.string.preferences_translation_engine_key)
+	val geminiApiKeyKey get() = resources.getString(R.string.preferences_gemini_api_key_key)
+	val geminiModelKey get() = resources.getString(R.string.preferences_gemini_model_key)
+	val translationDraftFirstKey get() = resources.getString(R.string.preferences_translation_draft_first_key)
+
+	/** Etkin motor: Gemini yalnızca anahtar varsa; hiç seçilmemişse anahtar varlığına göre. */
+	val translationEngine: String
+		get() = TranslationSettings.effectiveEngine(
+			sharedPreferences.getString(translationEngineKey, null), geminiApiKey)
+
+	/** Kayıtlı (seçilen) motor değeri; ayar ekranı/telefon için. */
+	val translationEngineChoice: String
+		get() = sharedPreferences.getString(translationEngineKey, null)?.takeIf { it in TranslationSettings.ENGINES }
+			?: if(geminiApiKey.isNotEmpty()) TranslationSettings.ENGINE_GEMINI else TranslationSettings.ENGINE_MLKIT
+
+	val geminiApiKey: String
+		get() = (try { sharedPreferences.getString(geminiApiKeyKey, null) } catch(e: ClassCastException) { null })?.trim() ?: ""
+
+	val geminiModel: String
+		get() = TranslationSettings.normalizeModel(sharedPreferences.getString(geminiModelKey, null))
+
+	val translationDraftFirst: Boolean
+		get() = sharedPreferences.getBoolean(translationDraftFirstKey, TranslationSettings.DEFAULT_DRAFT_FIRST)
+
+	/** Bu anahtarlardan biri değişince altyazı servisi çeviri ayarlarını yeniden okur. */
+	val translationKeys: Set<String> get() = setOf(translationEngineKey, geminiApiKeyKey, geminiModelKey, translationDraftFirstKey)
 
 	private fun parseColor(value: String?, default: Int): Int =
 		try
