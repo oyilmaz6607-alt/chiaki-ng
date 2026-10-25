@@ -97,6 +97,16 @@
                     android:textColor="@color/home_accent"
                     android:textSize="17sp"
                     android:fontFamily="sans-serif-medium" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/accountHelpButton"
+                    style="@style/Home.SecondaryButton"
+                    android:layout_width="match_parent"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/help_account_id_button"
+                    app:icon="@drawable/ic_home_help"
+                    app:iconTint="@color/home_accent"
+                    app:iconGravity="textStart" />
             </LinearLayout>
 
             <TextView

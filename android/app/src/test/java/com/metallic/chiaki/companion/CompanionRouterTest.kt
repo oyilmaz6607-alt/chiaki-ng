@@ -17,6 +17,7 @@ class CompanionRouterTest
 			return HttpResponse.json(200, "{\"ok\":true,\"call\":\"$name\"}")
 		}
 		override fun page() = r("page")
+		override fun helpPage() = r("help")
 		override fun state() = r("state")
 		override fun consoles() = r("consoles")
 		override fun getSettings() = r("getSettings")
@@ -51,6 +52,19 @@ class CompanionRouterTest
 		assertEquals(200, router.route(req("GET", "/index.html")).status)
 		assertEquals(405, router.route(req("POST", "/")).status)
 		assertEquals(listOf("page", "page"), b.calls)
+		assertEquals(0, b.seen)
+	}
+
+	@Test
+	fun helpPageNeedsNoToken()
+	{
+		val b = FakeBackend()
+		val router = CompanionRouter(token, b)
+		assertEquals(200, router.route(req("GET", "/help")).status)
+		assertEquals(200, router.route(req("GET", "/help/index.html")).status)
+		assertEquals(405, router.route(req("POST", "/help")).status)
+		assertEquals(404, router.route(req("GET", "/help/other.html")).status)
+		assertEquals(listOf("help", "help"), b.calls)
 		assertEquals(0, b.seen)
 	}
 
