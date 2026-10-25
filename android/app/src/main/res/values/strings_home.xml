@@ -41,7 +41,7 @@
     <string name="home_tile_pair">Konsol ekle / eşleştir</string>
     <string name="home_tile_pair_sub">PIN ile eşleştir veya IP gir</string>
     <string name="home_tile_help">Nasıl kullanılır?</string>
-    <string name="home_tile_help_sub">4 adımda kurulum</string>
+    <string name="home_tile_help_sub">Adım adım animasyonlu anlatım</string>
     <string name="home_about">Hakkında</string>
 
     <!-- Konsol ekle seçenekleri -->

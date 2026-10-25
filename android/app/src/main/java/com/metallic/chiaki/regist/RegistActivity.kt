@@ -16,6 +16,7 @@ import com.metallic.chiaki.common.ext.RevealActivity
 import com.metallic.chiaki.databinding.ActivityRegistBinding
 import com.metallic.chiaki.lib.RegistInfo
 import com.metallic.chiaki.lib.Target
+import com.metallic.chiaki.main.HelpActivity
 import com.metallic.chiaki.main.HomePrefs
 import java.lang.IllegalArgumentException
 
@@ -59,6 +60,9 @@ class RegistActivity: AppCompatActivity(), RevealActivity
 		}
 
 		binding.registButton.setOnClickListener { doRegist() }
+		binding.accountHelpButton.setOnClickListener {
+			startActivity(HelpActivity.intent(this, HelpActivity.ANCHOR_ACCOUNT_ID))
+		}
 
 		binding.ps4VersionRadioGroup.check(when(viewModel.ps4Version.value ?: RegistViewModel.ConsoleVersion.PS5) {
 			RegistViewModel.ConsoleVersion.PS5 -> R.id.ps5RadioButton

@@ -9,6 +9,8 @@ package com.metallic.chiaki.companion
 interface CompanionBackend
 {
 	fun page(): HttpResponse
+	/** Adım adım anlatım sayfası (assets/help/index.html); veri içermez, jeton gerekmez. */
+	fun helpPage(): HttpResponse = HttpResponse.error(404, "Not found")
 	fun state(): HttpResponse
 	fun consoles(): HttpResponse
 	fun getSettings(): HttpResponse
@@ -27,7 +29,7 @@ interface CompanionBackend
  * - İstemci adresi yerel ağda olmalı (bağlantı kabul edilirken [LanAddressFilter] ile, sunucuda).
  * - Host başlığı sayısal IP, "localhost" veya ".local" olmalı (DNS rebinding saldırılarına karşı).
  * - Origin başlığı varsa Host ile aynı olmalı (başka sitelerden gelen POST'lara karşı).
- * - "/" (sayfa iskeleti, gizli bilgi içermez) ve "/api/pair" (kısa kodu jetonla takas eder) dışında
+ * - "/" (sayfa iskeleti, gizli bilgi içermez), "/help" (anlatım) ve "/api/pair" (kısa kodu jetonla takas eder) dışında
  *   her istek jeton taşımalı: API için X-Token başlığı, diğerleri için ?t=.
  */
 class CompanionRouter(
@@ -107,6 +109,14 @@ class CompanionRouter(
 			if(method != "GET" && method != "HEAD")
 				return methodNotAllowed("GET")
 			return backend.page()
+		}
+
+		// Anlatım sayfası: yalnızca statik içerik, jeton gerekmez.
+		if(path == "/help" || path == "/help/" || path == "/help/index.html")
+		{
+			if(method != "GET" && method != "HEAD")
+				return methodNotAllowed("GET")
+			return backend.helpPage()
 		}
 
 		if(path == "/api/pair")

@@ -27,8 +27,6 @@ import com.metallic.chiaki.companion.QrCode
 import com.metallic.chiaki.databinding.ActivityMainBinding
 import com.metallic.chiaki.databinding.DialogCompanionBinding
 import com.metallic.chiaki.databinding.DialogHomeAboutBinding
-import com.metallic.chiaki.databinding.DialogHomeHelpBinding
-import com.metallic.chiaki.databinding.ItemHomeHelpStepBinding
 import com.metallic.chiaki.lib.ConnectInfo
 import com.metallic.chiaki.manualconsole.EditManualConsoleActivity
 import com.metallic.chiaki.regist.RegistActivity
@@ -150,6 +148,9 @@ class MainActivity : AppCompatActivity()
 
 		updateHero()
 		binding.primaryButton.requestFocus()
+
+		if(savedInstanceState == null)
+			maybeShowFirstRunHelp()
 	}
 
 	override fun onStart()
@@ -519,22 +520,16 @@ class MainActivity : AppCompatActivity()
 
 	private fun showHelp()
 	{
-		val helpBinding = DialogHomeHelpBinding.inflate(layoutInflater)
-		bindStep(helpBinding.step1, 1, R.string.home_help_step1_title, R.string.home_help_step1_body)
-		bindStep(helpBinding.step2, 2, R.string.home_help_step2_title, R.string.home_help_step2_body)
-		bindStep(helpBinding.step3, 3, R.string.home_help_step3_title, R.string.home_help_step3_body)
-		bindStep(helpBinding.step4, 4, R.string.home_help_step4_title, R.string.home_help_step4_body)
-		MaterialAlertDialogBuilder(this)
-			.setView(helpBinding.root)
-			.setPositiveButton(R.string.home_help_close, null)
-			.show()
+		startActivity(HelpActivity.intent(this))
 	}
 
-	private fun bindStep(step: ItemHomeHelpStepBinding, number: Int, titleRes: Int, bodyRes: Int)
+	/** İlk açılışta anlatım bir kez kendiliğinden gösterilir (sayfadan veya Geri ile geçilebilir). */
+	private fun maybeShowFirstRunHelp()
 	{
-		step.numberTextView.text = number.toString()
-		step.titleTextView.setText(titleRes)
-		step.bodyTextView.setText(bodyRes)
+		if(homePrefs.helpShown)
+			return
+		homePrefs.helpShown = true
+		showHelp()
 	}
 
 	private fun showAbout()

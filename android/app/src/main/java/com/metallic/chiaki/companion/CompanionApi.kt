@@ -53,6 +53,7 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 	{
 		private const val TAG = "CompanionApi"
 		private const val PAGE_ASSET = "companion/index.html"
+		private const val HELP_ASSET = "help/index.html"
 		/** Son API isteğinden bu kadar sonra telefon için açılan ağ taraması durdurulur. */
 		private const val DISCOVERY_IDLE_MS = 45_000L
 		private const val DISCOVERY_WAIT_MS = 3_000L
@@ -87,6 +88,18 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 		}
 	}
 
+	private val helpBytes: ByteArray? by lazy {
+		try
+		{
+			this.context.assets.open(HELP_ASSET).use { it.readBytes() }
+		}
+		catch(e: Exception)
+		{
+			Log.e(TAG, "Help page asset missing", e)
+			null
+		}
+	}
+
 	fun dispose()
 	{
 		disposed = true
@@ -104,6 +117,12 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 	override fun page(): HttpResponse
 	{
 		val bytes = pageBytes ?: return HttpResponse.text(500, "Sayfa bulunamadı")
+		return HttpResponse(200, HttpResponse.HTML, bytes, mapOf("Content-Security-Policy" to CSP))
+	}
+
+	override fun helpPage(): HttpResponse
+	{
+		val bytes = helpBytes ?: return HttpResponse.text(500, "Sayfa bulunamadı")
 		return HttpResponse(200, HttpResponse.HTML, bytes, mapOf("Content-Security-Policy" to CSP))
 	}
 

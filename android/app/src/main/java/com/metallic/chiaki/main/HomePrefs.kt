@@ -6,7 +6,8 @@ import android.content.Context
 import android.content.SharedPreferences
 
 /**
- * AltyazıTR: ana ekranın küçük hafızası (son seçilen konsol, ağda en son görülen konsol IP'si).
+ * AltyazıTR: ana ekranın küçük hafızası (son seçilen konsol, ağda en son görülen konsol IP'si,
+ * ilk açılış anlatımının gösterilip gösterilmediği).
  * Ayarlar ekranındaki Preferences'tan ayrı bir dosyada tutulur.
  */
 class HomePrefs(context: Context)
@@ -17,6 +18,7 @@ class HomePrefs(context: Context)
 		private const val KEY_LAST_CONSOLE_KEY = "last_console_key"
 		private const val KEY_LAST_CONSOLE_HOST = "last_console_host"
 		private const val KEY_LAST_DISCOVERED_HOST = "last_discovered_host"
+		private const val KEY_HELP_SHOWN = "help_shown"
 	}
 
 	private val prefs: SharedPreferences = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -32,6 +34,11 @@ class HomePrefs(context: Context)
 	var lastDiscoveredHost: String?
 		get() = prefs.getString(KEY_LAST_DISCOVERED_HOST, null)
 		set(value) { prefs.edit().putString(KEY_LAST_DISCOVERED_HOST, value).apply() }
+
+	/** "Nasıl kullanılır?" anlatımı ilk açılışta bir kez gösterildi mi. */
+	var helpShown: Boolean
+		get() = prefs.getBoolean(KEY_HELP_SHOWN, false)
+		set(value) { prefs.edit().putBoolean(KEY_HELP_SHOWN, value).apply() }
 
 	fun rememberConsole(console: HomeConsole)
 	{

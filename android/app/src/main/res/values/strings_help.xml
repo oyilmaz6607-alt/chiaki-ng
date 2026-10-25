@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AltyazıTR: animasyonlu "Nasıl kullanılır?" anlatımı (assets/help/index.html) için yerel metinler -->
+<resources>
+    <string name="help_activity_title">Nasıl kullanılır?</string>
+    <string name="help_link_no_browser">Bu adresi telefonunuzda açın: %1$s</string>
+    <string name="help_account_id_button">Hesap kimliğini nasıl bulurum?</string>
+    <string name="help_fallback_account_title">Hesap kimliği (Encoded ID)</string>
+    <string name="help_fallback_account_body">1. PS5\'te ikinci hesabın kullanıcı adını (çevrimiçi kimlik) profilinden öğrenin.\n2. O hesapta Ayarlar → Kullanıcılar ve Hesaplar → Gizlilik bölümünden hesabın aramada \"Herkes\" tarafından bulunmasına geçici olarak izin verin (ör. \"Sosyal ve Açık\").\n3. Telefonda psn.flipscreen.games adresini açın, kullanıcı adını yazıp Submit\'e basın.\n4. \"Encoded ID (for Chiaki)\" satırındaki değeri kopyalayın (12 karakter, çoğu zaman \"=\" ile biter). Uzun sayı olan \"Account ID\" değil!\n5. Değeri eşleştirme ekranındaki Account ID alanına girin. Sonra gizlilik ayarını geri alabilirsiniz.</string>
+    <string name="help_fallback_close">Anladım</string>
+</resources>
