@@ -48,6 +48,10 @@
     <PreferenceCategory
         app:key="category_translation"
         app:title="@string/preferences_category_title_translation">
+        <Preference
+            app:key="@string/preferences_pro_key"
+            app:title="@string/preferences_pro_title"
+            app:summary="@string/preferences_pro_summary_off" />
         <ListPreference
             app:key="@string/preferences_translation_engine_key"
             app:title="@string/preferences_translation_engine_title"

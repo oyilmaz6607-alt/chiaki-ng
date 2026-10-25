@@ -89,6 +89,13 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
 
         <activity
+            android:name=".billing.ProActivity"
+            android:theme="@style/HomeTheme"
+            android:label="@string/pro_activity_title"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />
+
+        <activity
             android:name=".main.HelpActivity"
             android:theme="@style/HomeTheme"
             android:label="@string/help_activity_title"

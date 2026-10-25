@@ -39,6 +39,8 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.metallic.chiaki.BuildConfig
 import com.metallic.chiaki.R
+import com.metallic.chiaki.billing.BillingRepository
+import com.metallic.chiaki.billing.ProStore
 import com.metallic.chiaki.common.LogManager
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.companion.CompanionServer
@@ -162,6 +164,11 @@ class CaptionService : Service()
 	private val cache = TranslationCache(2000)
 	private val gemini = GeminiClient()
 	private val geminiBackoff = GeminiBackoff()
+	/** AltyazıTR Pro (abonelik) istemcisi: oturum jetonu uygulama genelinde paylaşılır. */
+	private val pro by lazy { ProTranslator.get(this) }
+	private val proBackoff = GeminiBackoff()
+	/** Süren Pro isteği: yeni altyazı gelince iptal edilir (eski cümle için akış boşuna sürmesin). */
+	private var proJob: Job? = null
 	private val tracker = SubtitleTracker()
 	private val refine = RefineState()
 	/** Gemini'ye bağlam olarak gönderilen son altyazı çiftleri (ana iş parçacığı). */
@@ -173,6 +180,7 @@ class CaptionService : Service()
 	private var geminiKey = ""
 	private var geminiModel = TranslationSettings.DEFAULT_MODEL
 	private var draftFirst = TranslationSettings.DEFAULT_DRAFT_FIRST
+	private var proSubscribed = false
 
 	// ---- kare iş parçacığında kullanılanlar
 	private val detector = FrameChangeDetector()
@@ -230,12 +238,16 @@ class CaptionService : Service()
 	@Volatile private var ocrSkippedEmpty = 0
 	private var mlkitMs = 0L
 	private var geminiMs = 0L
+	private var proMs = 0L
+	/** Pro akışında ilk parçanın gelme süresi. */
+	private var proFirstMs = 0L
 	private var shownEngine = ""
 	private var geminiNote = ""
 	private var lastOcr = ""
 	@Volatile private var lastError = ""
 
 	private lateinit var prefs: Preferences
+	private lateinit var proStore: ProStore
 
 	// ---- telefon kumandası / ayarlar ekranı: görünüm değişince canlı uygula (ana iş parçacığı)
 	private var styleKeys: Set<String> = emptySet()
@@ -260,6 +272,11 @@ class CaptionService : Service()
 		if(key == null || key in translationKeys)
 			applyTranslationSettings()
 	}
+	/** Abonelik başlayınca/bitince (BillingRepository → ProStore) motor yeniden seçilir. */
+	private val proListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+		if(key == null || key == ProStore.KEY_TOKEN)
+			applyTranslationSettings()
+	}
 
 	override fun onBind(intent: Intent?): IBinder? = null
 
@@ -268,6 +285,7 @@ class CaptionService : Service()
 		super.onCreate()
 		windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 		prefs = Preferences(this)
+		proStore = ProStore(this)
 	}
 
 	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int
@@ -297,6 +315,8 @@ class CaptionService : Service()
 		schedulerIntervalMs = interval
 		scheduler = newScheduler(interval)
 		applyTranslationSettings()
+		// Abonelik durumunu Google Play'den tazele (sonuç ProStore'a yazılır, proListener motoru günceller).
+		BillingRepository.get(this).start()
 		loadCache()
 		addOverlays()
 		status(getString(R.string.caption_status_connecting))
@@ -318,6 +338,7 @@ class CaptionService : Service()
 		if(prefsListenerRegistered)
 		{
 			prefs.sharedPreferences.unregisterOnSharedPreferenceChangeListener(prefsListener)
+			proStore.sharedPreferences.unregisterOnSharedPreferenceChangeListener(proListener)
 			prefsListenerRegistered = false
 		}
 		if(companionHeld)
@@ -369,6 +390,7 @@ class CaptionService : Service()
 		scanKeys = setOf(getString(R.string.preferences_subtitle_area_key), getString(R.string.preferences_subtitle_speed_key))
 		translationKeys = prefs.translationKeys
 		prefs.sharedPreferences.registerOnSharedPreferenceChangeListener(prefsListener)
+		proStore.sharedPreferences.registerOnSharedPreferenceChangeListener(proListener)
 		prefsListenerRegistered = true
 	}
 
@@ -393,23 +415,31 @@ class CaptionService : Service()
 
 	private fun applyTranslationSettings()
 	{
-		val before = engine to geminiKey
+		val before = Triple(engine, geminiKey, proSubscribed)
+		proSubscribed = prefs.proSubscribed
 		engine = prefs.translationEngine
 		geminiKey = prefs.geminiApiKey
 		geminiModel = prefs.geminiModel
 		draftFirst = prefs.translationDraftFirst
-		if(before != (engine to geminiKey))
+		if(before != Triple(engine, geminiKey, proSubscribed))
 		{
 			geminiBackoff.onSuccess()
+			proBackoff.onSuccess()
 			geminiNote = ""
 		}
+		// Model inmemiş olsa da Gemini/Pro ile çalışılabilir.
+		if(TranslationSettings.isRemote(engine))
+			processingEnabled = processingEnabled || isRunning
 		if(engine == TranslationSettings.ENGINE_GEMINI)
 		{
-			// Model inmemiş olsa da Gemini ile çalışılabilir.
-			processingEnabled = processingEnabled || isRunning
 			val key = geminiKey
 			val model = geminiModel
 			scope.launch(Dispatchers.IO) { gemini.warmUp(key, model) }
+		}
+		else if(engine == TranslationSettings.ENGINE_PRO)
+		{
+			val client = pro
+			scope.launch(Dispatchers.IO) { client.warmUp() }
 		}
 	}
 
@@ -513,7 +543,7 @@ class CaptionService : Service()
 			is ConnectedEvent ->
 			{
 				connected = true
-				status(if(modelReady || engine == TranslationSettings.ENGINE_GEMINI) null else getString(R.string.subtitle_model_downloading))
+				status(if(modelReady || TranslationSettings.isRemote(engine)) null else getString(R.string.subtitle_model_downloading))
 			}
 			is QuitEvent ->
 			{
@@ -550,8 +580,8 @@ class CaptionService : Service()
 			catch(e: Exception)
 			{
 				lastError = "Model: ${e.message}"
-				// Gemini ile cihaz içi model olmadan da çalışılır; model arka planda yeniden denenir.
-				if(engine == TranslationSettings.ENGINE_GEMINI)
+				// Gemini/Pro ile cihaz içi model olmadan da çalışılır; model arka planda yeniden denenir.
+				if(TranslationSettings.isRemote(engine))
 					processingEnabled = true
 				else
 					status(getString(R.string.subtitle_model_failed))
@@ -785,27 +815,37 @@ class CaptionService : Service()
 		}
 	}
 
-	// ---------------------------------------------------------------- çeviri: önce hızlı, sonra Gemini
+	// ---------------------------------------------------------------- çeviri: önce hızlı, sonra Gemini/Pro
+
+	/** Sunucuya giden motor (Gemini anahtarlı veya Pro); yoksa null = yalnızca cihaz içi. */
+	private fun remoteEngine(): String? = when(engine)
+	{
+		TranslationSettings.ENGINE_GEMINI -> if(geminiKey.isNotEmpty()) TranslationSettings.ENGINE_GEMINI else null
+		TranslationSettings.ENGINE_PRO -> TranslationSettings.ENGINE_PRO
+		else -> null
+	}
 
 	/**
-	 * Ana iş parçacığı. Cihaz içi (ML Kit) çeviri hemen gösterilir; Gemini seçiliyse onun sonucu gelince
-	 * (altyazı hâlâ aynıysa) yerine yazılır. "Önce hızlı çeviri" kapalıysa yalnızca Gemini sonucu gösterilir.
-	 * Gemini hata verirse cihaz içi çeviriye dönülür.
+	 * Ana iş parçacığı. Cihaz içi (ML Kit) çeviri hemen gösterilir; Gemini/Pro seçiliyse onun sonucu gelince
+	 * (altyazı hâlâ aynıysa) yerine yazılır. "Önce hızlı çeviri" kapalıysa yalnızca Gemini/Pro sonucu gösterilir
+	 * (Pro'da akış sırasında Türkçe yazıldıkça görünür). Hata olursa cihaz içi çeviriye dönülür.
 	 */
 	private fun startTranslation(c: SubtitleCandidate, grown: Boolean, frameAt: Long)
 	{
 		currentCandidate = c
 		val gen = refine.newGeneration()
-		val useGemini = engine == TranslationSettings.ENGINE_GEMINI && geminiKey.isNotEmpty()
-		if(useGemini)
+		val remote = remoteEngine()
+		val useRemote = remote != null
+		if(remote != null)
 		{
-			cache.get(TranslationSettings.ENGINE_GEMINI, c.text)?.let {
-				display(gen, it, RefineState.Source.CACHE_GEMINI, frameAt, c.text)
+			cache.get(remote, c.text)?.let {
+				val source = if(remote == TranslationSettings.ENGINE_PRO) RefineState.Source.CACHE_PRO else RefineState.Source.CACHE_GEMINI
+				display(gen, it, source, frameAt, c.text)
 				return
 			}
 		}
 		val draft = cache.get(TranslationSettings.ENGINE_MLKIT, c.text)
-		val wantDraft = !useGemini || draftFirst
+		val wantDraft = !useRemote || draftFirst
 		if(draft != null && wantDraft)
 			display(gen, draft, RefineState.Source.CACHE_MLKIT, frameAt, c.text)
 		else if(!grown)
@@ -817,13 +857,16 @@ class CaptionService : Service()
 		}
 		if(draft == null && wantDraft && modelReady)
 			launchMlKit(gen, c.text, frameAt, isFallback = false)
-		if(!useGemini)
+		if(!useRemote)
 		{
 			if(!modelReady)
 				lastError = "Çeviri modeli hazır değil"
 			return
 		}
-		launchGemini(gen, c.text, grown, frameAt)
+		if(remote == TranslationSettings.ENGINE_PRO)
+			launchPro(gen, c.text, grown, frameAt)
+		else
+			launchGemini(gen, c.text, grown, frameAt)
 	}
 
 	private fun launchMlKit(gen: Int, english: String, frameAt: Long, isFallback: Boolean)
@@ -841,15 +884,15 @@ class CaptionService : Service()
 			catch(e: Exception)
 			{
 				lastError = "Çeviri: ${e.message}"
-				// Gemini isteği hâlâ yoldaysa taslağın hatası ekranı temizlemesin; sonucu Gemini belirler.
-				if(isFallback || engine != TranslationSettings.ENGINE_GEMINI)
+				// Gemini/Pro isteği hâlâ yoldaysa taslağın hatası ekranı temizlemesin; sonucu o belirler.
+				if(isFallback || !TranslationSettings.isRemote(engine))
 					onTranslationFailed(gen)
 				return@launch
 			}
 			mlkitMs = SystemClock.uptimeMillis() - started
 			cache.put(TranslationSettings.ENGINE_MLKIT, english, turkish)
 			if(display(gen, turkish, RefineState.Source.MLKIT, frameAt, english) && isFallback)
-				shownEngine = "cihaz içi (Gemini yerine)"
+				shownEngine = if(engine == TranslationSettings.ENGINE_PRO) "cihaz içi (Pro yerine)" else "cihaz içi (Gemini yerine)"
 		}
 	}
 
@@ -900,7 +943,73 @@ class CaptionService : Service()
 		}
 	}
 
-	/** Gemini sonuç vermedi: ekranda hiç çeviri yoksa cihaz içi çeviri gösterilir. */
+	/**
+	 * AltyazıTR Pro: Türkçe akış hâlinde gelir; kısmi metin ([RefineState.Source.PRO_PARTIAL]) ekranda henüz
+	 * çeviri yokken gösterilir ve parça geldikçe güncellenir, sonra tam metin yerine yazılır.
+	 * Hata/zaman aşımında yarım metin bırakılmaz, cihaz içi çeviriye dönülür.
+	 */
+	private fun launchPro(gen: Int, english: String, grown: Boolean, frameAt: Long)
+	{
+		proJob?.cancel()
+		proJob = scope.launch {
+			if(grown)
+			{
+				// Daktilo efekti: harf harf büyüyen satır için her adımda istek atma.
+				delay(GROWN_GEMINI_DEBOUNCE_MS)
+				if(gen != refine.gen)
+					return@launch
+			}
+			val now = SystemClock.uptimeMillis()
+			if(!proBackoff.canTry(now))
+			{
+				geminiNote = "Pro beklemede (${(proBackoff.remainingMs(now) + 999) / 1000} sn)" +
+						(if(lastError.startsWith("Pro: ")) " — " + lastError.removePrefix("Pro: ") else "")
+				fallbackToMlKit(gen, english, frameAt)
+				return@launch
+			}
+			val context = contextPairs.toList()
+			val started = SystemClock.uptimeMillis()
+			var gotFirst = false
+			val turkish = try
+			{
+				pro.translate(english, context) { partial ->
+					if(!gotFirst)
+					{
+						gotFirst = true
+						proFirstMs = SystemClock.uptimeMillis() - started
+					}
+					display(gen, partial, RefineState.Source.PRO_PARTIAL, frameAt, english)
+				}
+			}
+			catch(e: CancellationException)
+			{
+				throw e
+			}
+			catch(e: Exception)
+			{
+				proMs = SystemClock.uptimeMillis() - started
+				val error = (e as? ProTranslator.ProException)?.error
+				proBackoff.onFailure(SystemClock.uptimeMillis(), error?.let { ProApi.backoffCode(it) } ?: 0)
+				geminiNote = "Pro hata: ${e.message?.take(80)} → cihaz içi"
+				lastError = "Pro: ${e.message?.take(100)}"
+				Log.w(TAG, "Pro failed: ${error?.code} ${e.message}")
+				// Sunucu aboneliği etkin görmüyorsa Google Play'deki durumu tazele (bitti/iptal olduysa motor değişir).
+				if(error?.code == ProApi.CODE_NOT_SUBSCRIBED || error?.code == ProApi.CODE_INVALID_PURCHASE)
+					BillingRepository.get(this@CaptionService).refreshPurchases()
+				refine.dropPartial(gen)
+				fallbackToMlKit(gen, english, frameAt)
+				return@launch
+			}
+			proMs = SystemClock.uptimeMillis() - started
+			proBackoff.onSuccess()
+			geminiNote = ""
+			cache.put(TranslationSettings.ENGINE_PRO, english, turkish)
+			scheduleCacheSave()
+			display(gen, turkish, RefineState.Source.PRO, frameAt, english)
+		}
+	}
+
+	/** Gemini/Pro sonuç vermedi: ekranda hiç çeviri yoksa cihaz içi çeviri gösterilir. */
 	private fun fallbackToMlKit(gen: Int, english: String, frameAt: Long)
 	{
 		if(gen != refine.gen || refine.shown != null)
@@ -946,8 +1055,12 @@ class CaptionService : Service()
 			RefineState.Source.GEMINI -> "Gemini"
 			RefineState.Source.CACHE_GEMINI -> "Gemini (önbellek)"
 			RefineState.Source.CACHE_MLKIT -> "cihaz içi (önbellek)"
+			RefineState.Source.PRO -> "Pro"
+			RefineState.Source.CACHE_PRO -> "Pro (önbellek)"
+			RefineState.Source.PRO_PARTIAL -> "Pro (akış)"
 		}
-		val isFinalResult = refine.isFinal(source) || engine != TranslationSettings.ENGINE_GEMINI
+		// Bağlama yalnızca son çeviri girer (Pro'nun yarım metni veya Gemini/Pro yerine taslak girmez).
+		val isFinalResult = refine.isFinal(source) || (!TranslationSettings.isRemote(engine) && source != RefineState.Source.PRO_PARTIAL)
 		if(isFinalResult)
 			rememberContext(english, turkish)
 		return true
@@ -1146,7 +1259,7 @@ class CaptionService : Service()
 	private fun debugLine() =
 		"bağlı=$connected model=${if(modelReady) "hazır" else "yok"} motor=$engine kare=$frames örnek=$sampled ocr=$ocrRuns" +
 				" atlanan(aynı/boş)=$ocrSkippedSame/$ocrSkippedEmpty" +
-				"\nkes=${cropMs} ms [$cropInfo]  OCR=${ocrMs} ms  mlkit=${mlkitMs} ms  gemini=${geminiMs} ms" +
+				"\nkes=${cropMs} ms [$cropInfo]  OCR=${ocrMs} ms  mlkit=${mlkitMs} ms  gemini=${geminiMs} ms  pro=${proMs} ms (ilk parça ${proFirstMs} ms)" +
 				"\nilk çeviri=${e2eMs} ms  son=${e2eFinalMs} ms  gösterilen: ${shownEngine.ifEmpty { "-" }}" +
 				(if(geminiNote.isNotEmpty()) "\n$geminiNote" else "") +
 				(if(lastOcr.isNotEmpty()) "\nOkunan: ${lastOcr.take(70)}" else "") +

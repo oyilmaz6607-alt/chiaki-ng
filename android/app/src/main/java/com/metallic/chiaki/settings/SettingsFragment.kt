@@ -14,6 +14,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.preference.*
 import com.metallic.chiaki.R
+import com.metallic.chiaki.billing.ProActivity
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.exportAndShareAllSettings
 import com.metallic.chiaki.common.ext.viewModelFactory
@@ -166,10 +167,26 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 		val enginePreference = preferenceScreen.findPreference<ListPreference>(preferences.translationEngineKey)
 		enginePreference?.summaryProvider = Preference.SummaryProvider<ListPreference> {
 			val label = it.entry?.toString() ?: ""
-			if(preferences.translationEngineChoice == TranslationSettings.ENGINE_GEMINI && preferences.geminiApiKey.isEmpty())
-				getString(R.string.preferences_translation_engine_no_key, label)
-			else
-				label
+			val choice = preferences.translationEngineChoice
+			when
+			{
+				choice == TranslationSettings.ENGINE_GEMINI && preferences.geminiApiKey.isEmpty() ->
+					getString(R.string.preferences_translation_engine_no_key, label)
+				choice == TranslationSettings.ENGINE_PRO && !preferences.proSubscribed ->
+					getString(R.string.preferences_translation_engine_no_pro, label, getString(
+						if(preferences.translationEngine == TranslationSettings.ENGINE_GEMINI) R.string.preferences_translation_engine_fallback_gemini
+						else R.string.preferences_translation_engine_fallback_mlkit))
+				else -> label
+			}
+		}
+		preferenceScreen.findPreference<Preference>(getString(R.string.preferences_pro_key))?.let { pref ->
+			pref.summaryProvider = Preference.SummaryProvider<Preference> {
+				getString(if(preferences.proSubscribed) R.string.preferences_pro_summary_on else R.string.preferences_pro_summary_off)
+			}
+			pref.setOnPreferenceClickListener {
+				startActivity(ProActivity.intent(requireContext()))
+				true
+			}
 		}
 		preferenceScreen.findPreference<EditTextPreference>(preferences.geminiApiKeyKey)?.let { pref ->
 			// Anahtar ekranda asla açık gösterilmez.
@@ -237,6 +254,12 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 		super.onResume()
 		// Altyazı görünümü alt ekranından dönünce önizlemeyi tazele.
 		preferenceScreen?.findPreference<CaptionPreviewPreference>("subtitle_caption_preview")?.refresh()
+		// Abonelik ekranından dönünce Pro ve motor özetleri yenilensin (özet sağlayıcıyı yeniden atamak yeniden çizer).
+		val context = context ?: return
+		val preferences = Preferences(context)
+		listOf(getString(R.string.preferences_pro_key), preferences.translationEngineKey).forEach { key ->
+			preferenceScreen?.findPreference<Preference>(key)?.let { p -> p.summaryProvider = p.summaryProvider }
+		}
 	}
 
 	private fun exportSettings()

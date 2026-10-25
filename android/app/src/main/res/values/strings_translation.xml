@@ -9,10 +9,12 @@
     <string-array name="translation_engine_entries">
         <item>Cihaz içi (ücretsiz, çevrimdışı)</item>
         <item>Gemini (daha doğru, internet gerekir)</item>
+        <item>AltyazıTR Pro (abonelik)</item>
     </string-array>
     <string-array name="translation_engine_values" translatable="false">
         <item>mlkit</item>
         <item>gemini</item>
+        <item>pro</item>
     </string-array>
     <string name="preferences_translation_engine_no_key">%1$s — API anahtarı girilmedi, cihaz içi çeviri kullanılıyor</string>
 

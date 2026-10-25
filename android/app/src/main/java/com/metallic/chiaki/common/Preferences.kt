@@ -8,6 +8,7 @@ import android.graphics.Color
 import androidx.annotation.StringRes
 import androidx.preference.PreferenceManager
 import com.metallic.chiaki.R
+import com.metallic.chiaki.billing.ProStore
 import com.metallic.chiaki.lib.Codec
 import com.metallic.chiaki.lib.ConnectVideoProfile
 import com.metallic.chiaki.lib.VideoFPSPreset
@@ -61,6 +62,8 @@ class Preferences(context: Context)
 	}.also { sharedPreferences.registerOnSharedPreferenceChangeListener(it) }
 
 	private val resources = context.resources
+	/** AltyazıTR Pro'nun son doğrulanmış abonelik durumu (ayrı dosya; bkz. billing/ProStore). */
+	private val proStore = ProStore(context)
 
 	val discoveryEnabledKey get() = resources.getString(R.string.preferences_discovery_enabled_key)
 	var discoveryEnabled
@@ -169,15 +172,20 @@ class Preferences(context: Context)
 	val geminiModelKey get() = resources.getString(R.string.preferences_gemini_model_key)
 	val translationDraftFirstKey get() = resources.getString(R.string.preferences_translation_draft_first_key)
 
-	/** Etkin motor: Gemini yalnızca anahtar varsa; hiç seçilmemişse anahtar varlığına göre. */
+	/** AltyazıTR Pro aboneliği etkin mi (Google Play'den son doğrulanan durum)? */
+	val proSubscribed: Boolean get() = proStore.isSubscribed
+
+	/**
+	 * Etkin motor: Gemini yalnızca anahtar varsa, Pro yalnızca abonelik varsa; hiç seçilmemişse
+	 * abone → Pro, anahtar varsa Gemini, yoksa cihaz içi.
+	 */
 	val translationEngine: String
 		get() = TranslationSettings.effectiveEngine(
-			sharedPreferences.getString(translationEngineKey, null), geminiApiKey)
+			sharedPreferences.getString(translationEngineKey, null), geminiApiKey, proSubscribed)
 
 	/** Kayıtlı (seçilen) motor değeri; ayar ekranı/telefon için. */
 	val translationEngineChoice: String
-		get() = sharedPreferences.getString(translationEngineKey, null)?.takeIf { it in TranslationSettings.ENGINES }
-			?: if(geminiApiKey.isNotEmpty()) TranslationSettings.ENGINE_GEMINI else TranslationSettings.ENGINE_MLKIT
+		get() = TranslationSettings.chosenEngine(sharedPreferences.getString(translationEngineKey, null), geminiApiKey, proSubscribed)
 
 	val geminiApiKey: String
 		get() = (try { sharedPreferences.getString(geminiApiKeyKey, null) } catch(e: ClassCastException) { null })?.trim() ?: ""

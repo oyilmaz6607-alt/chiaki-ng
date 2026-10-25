@@ -32,6 +32,9 @@ android {
         targetSdk 35
         versionCode 1
         versionName chiakiVersion
+        // AltyazıTR Pro sunucusu (PRO_API.md). Boş = "Pro hizmeti henüz hazır değil".
+        // Derlerken: ./gradlew -PproApiBaseUrl=https://... (CI: PRO_API_BASE_URL gizli değişkeni)
+        buildConfigField "String", "PRO_API_BASE_URL", "\"${project.findProperty('proApiBaseUrl') ?: ''}\""
         // TV'ler ARM işlemcili: x86 kütüphanelerini çıkarmak APK'yı yarıya indirir
         ndk { abiFilters "armeabi-v7a", "arm64-v8a" }
         externalNativeBuild {
@@ -153,6 +156,9 @@ dependencies {
 
     // Telefondan kontrol: TV ekranındaki QR kod
     implementation libs.zxing.core
+
+    // AltyazıTR Pro aboneliği: Google Play Faturalandırma
+    implementation libs.billing.ktx
 
     testImplementation 'junit:junit:4.13.2'
 }

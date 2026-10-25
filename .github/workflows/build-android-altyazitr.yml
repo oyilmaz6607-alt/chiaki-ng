@@ -20,6 +20,8 @@ jobs:
       KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      # AltyazıTR Pro sunucu adresi (boşsa uygulamada Pro "henüz hazır değil" görünür)
+      PRO_API_BASE_URL: ${{ secrets.PRO_API_BASE_URL }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -79,7 +81,7 @@ jobs:
             echo "== gradle: $TASKS =="
             cd android
             chmod +x gradlew
-            ./gradlew --no-daemon --stacktrace $TASKS
+            ./gradlew --no-daemon --stacktrace -PproApiBaseUrl="$PRO_API_BASE_URL" $TASKS
           } 2>&1 | tee "$LOG"
 
       - uses: actions/upload-artifact@v4
