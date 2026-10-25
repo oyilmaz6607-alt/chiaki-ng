@@ -1,57 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL -->
-<!-- AltyazıTR Pro aboneliği (billing/ProActivity, ayarlar, ana ekran). -->
+<!-- AltyazıTR aboneliği: Standart / Pro / Premium paketleri + 3 gün ücretsiz deneme (billing/ProActivity, ayarlar, ana ekran). -->
+<!-- Paket adları, saatler ve satır sayıları koddadır (billing/BillingLogic.kt → Plans); fiyatlar Google Play'den gelir. -->
 <resources>
-    <string name="pro_activity_title">AltyazıTR Pro</string>
-    <string name="pro_brand">AltyazıTR Pro</string>
-    <string name="pro_headline">Oyunlarda daha doğru, daha doğal Türkçe</string>
-    <string name="pro_subhead">Aylık abonelik · Google Play ile güvenli ödeme</string>
+    <string name="pro_activity_title">AltyazıTR Abonelik</string>
+    <string name="pro_brand">AltyazıTR Abonelik</string>
+    <string name="pro_subhead">Yapay zekâ ile doğal Türkçe altyazı · oyun saatine göre paket seçin · Google Play ile güvenli ödeme</string>
 
-    <string name="pro_benefit_quality_title">Daha doğru ve doğal çeviri</string>
-    <string name="pro_benefit_quality_body">Önceki replikleri ve oyunun havasını dikkate alan gelişmiş yapay zekâ çevirisi; isimler ve terimler tutarlı kalır.</string>
-    <string name="pro_benefit_key_title">Anahtar gerekmez</string>
-    <string name="pro_benefit_key_body">API anahtarı almanıza veya girmenize gerek yok. Abone olun, çeviri motoru kendiliğinden Pro olur.</string>
-    <string name="pro_benefit_fast_title">Hızlı</string>
-    <string name="pro_benefit_fast_body">Türkçe, yazıldıkça ekranda belirmeye başlar; tekrar eden cümleler anında gelir.</string>
+    <string name="pro_habit_question">Ne kadar oynuyorsun?</string>
+    <string name="pro_habit_few">Haftada birkaç saat</string>
+    <string name="pro_habit_evenings">Hemen her akşam</string>
+    <string name="pro_habit_daily">Her gün uzun süre</string>
 
-    <string name="pro_status_label">DURUM</string>
-    <string name="pro_status_active">Pro etkin</string>
+    <string name="pro_plan_badge_recommended">En çok tercih edilen</string>
+    <string name="pro_plan_price_loading">Fiyat yükleniyor…</string>
+    <string name="pro_plan_price_unknown">Fiyat alınamadı</string>
+    <string name="pro_plan_action_retry">Tekrar dene</string>
+    <string name="pro_plan_action_unavailable">Şu an alınamıyor</string>
+    <!-- Kart erişilebilirlik açıklaması: ad, saat, satır, fiyat, işlem -->
+    <string name="pro_plan_card_description">%1$s paketi. %2$s. %3$s. %4$s. %5$s</string>
+
+    <string name="pro_status_active">Abonelik etkin</string>
+    <string name="pro_status_active_plan">%1$s etkin</string>
     <string name="pro_status_inactive">Abone değilsiniz</string>
     <string name="pro_status_pending">Ödeme onay bekliyor</string>
     <string name="pro_status_loading">Google Play\'e bağlanılıyor…</string>
-    <string name="pro_price_loading">Fiyat yükleniyor…</string>
-    <string name="pro_price_unknown">Fiyat şu anda alınamadı</string>
     <string name="pro_renewing">Her ay otomatik yenilenir.</string>
     <string name="pro_not_renewing">Otomatik yenileme kapalı: abonelik dönem sonunda biter.</string>
-    <string name="pro_pending_body">Ödemeniz onaylanınca AltyazıTR Pro kendiliğinden açılır. Bu birkaç dakika sürebilir.</string>
-    <string name="pro_not_ready">Pro hizmeti henüz hazır değil</string>
+    <string name="pro_trial_note">Ücretsiz deneme sürüyor: deneme boyunca %1$s satır yapay zekâ çevirisi.</string>
+    <string name="pro_pending_body">Ödemeniz onaylanınca aboneliğiniz kendiliğinden başlar. Bu birkaç dakika sürebilir.</string>
+    <string name="pro_not_ready">Abonelik hizmeti henüz hazır değil</string>
     <string name="pro_not_ready_body">Abonelik yakında açılacak. Şimdilik cihaz içi çeviriyi veya kendi Gemini anahtarınızı kullanabilirsiniz.</string>
+    <string name="pro_quota_exhausted_note">Bu dönemin hakkı doldu: yenilenene kadar cihaz içi çeviri kullanılıyor.</string>
 
-    <string name="pro_action_subscribe">Abone ol</string>
-    <string name="pro_action_retry">Tekrar dene</string>
-    <string name="pro_action_use_pro">Pro çeviriyi kullan</string>
+    <string name="pro_action_use_pro">Yapay zekâ çevirisini kullan</string>
     <string name="pro_action_manage">Aboneliği yönet</string>
     <string name="pro_action_privacy">Gizlilik politikası</string>
-    <string name="pro_engine_set">Çeviri motoru: AltyazıTR Pro</string>
-    <string name="pro_engine_in_use">Çeviri motoru olarak Pro kullanılıyor.</string>
+    <string name="pro_engine_set">Çeviri motoru: AltyazıTR Yapay Zekâ</string>
+    <string name="pro_engine_in_use">Çeviri motoru olarak AltyazıTR Yapay Zekâ kullanılıyor.</string>
     <string name="pro_engine_other">Çeviri motoru şu an başka bir motora ayarlı.</string>
 
-    <string name="pro_quota_loading">Bu ayki kullanım yükleniyor…</string>
+    <string name="pro_quota_loading">Bu dönemin kullanımı yükleniyor…</string>
     <string name="pro_quota_failed">Kullanım bilgisi alınamadı: %1$s</string>
 
-    <string name="pro_legal">Abonelik, iptal edilmediği sürece her ay otomatik olarak yenilenir ve ücret Google Play hesabınızdan alınır. Ücretsiz deneme varsa deneme bitmeden iptal ederseniz ücret alınmaz. İstediğiniz zaman Google Play → Abonelikler bölümünden (veya \"Aboneliği yönet\") iptal edebilirsiniz; iptal mevcut dönemin sonunda geçerli olur. Pro çeviride yalnızca altyazı metni sunucumuza ve Google Gemini\'ye gönderilir; ayrıntılar gizlilik politikasında.</string>
+    <string name="pro_legal">Abonelik, iptal edilmediği sürece her ay otomatik olarak yenilenir ve seçtiğiniz paketin ücreti Google Play hesabınızdan alınır. 3 günlük ücretsiz deneme yalnızca daha önce abone olmamış hesaplar içindir; deneme bitmeden iptal ederseniz ücret alınmaz. Paket yükseltmesi hemen geçerli olur (kalan süre Google Play tarafından orantılı olarak hesaplanır); daha ucuz pakete geçiş mevcut dönemin sonunda geçerli olur. Paketin satır hakkı dolarsa dönem sonuna kadar cihaz içi çeviri kullanılır. İstediğiniz zaman Google Play → Abonelikler bölümünden (veya \"Aboneliği yönet\") iptal edebilirsiniz; iptal mevcut dönemin sonunda geçerli olur. Yapay zekâ çevirisinde yalnızca altyazı metni sunucumuza ve Google Gemini\'ye gönderilir; ayrıntılar gizlilik politikasında.</string>
     <string name="pro_no_browser">Bu cihazda bağlantı açılamadı. Telefonunuzdan şu adrese gidin: %1$s</string>
     <string name="pro_no_play">Google Play açılamadı. Aboneliği telefonunuzdan yönetebilirsiniz: play.google.com → Ödemeler ve abonelikler.</string>
 
-    <!-- Ana ekran rozeti -->
-    <string name="home_pro_badge">AltyazıTR Pro</string>
-    <string name="home_pro_badge_active">Pro ✓</string>
+    <!-- Ana ekran rozeti: paket adı veya "Abone ol" -->
+    <string name="home_pro_badge">Abone ol</string>
+    <string name="home_pro_badge_active">Abone ✓</string>
 
     <!-- Ayarlar → Çeviri -->
     <string name="preferences_pro_key" translatable="false">subtitle_pro_screen</string>
-    <string name="preferences_pro_title">AltyazıTR Pro</string>
-    <string name="preferences_pro_summary_on">Abonelik etkin · daha doğru çeviri, anahtar gerekmez</string>
-    <string name="preferences_pro_summary_off">Daha doğru ve doğal çeviri, anahtar gerekmez · aylık abonelik</string>
+    <string name="preferences_pro_title">AltyazıTR Abonelik</string>
+    <string name="preferences_pro_summary_on">Abonelik etkin · paketinizi görmek veya değiştirmek için seçin</string>
+    <string name="preferences_pro_summary_off">Standart, Pro, Premium · oyun saatine göre paket · 3 gün ücretsiz dene</string>
     <string name="preferences_translation_engine_no_pro">%1$s — abonelik yok, %2$s kullanılıyor</string>
     <string name="preferences_translation_engine_fallback_gemini">Gemini</string>
     <string name="preferences_translation_engine_fallback_mlkit">cihaz içi çeviri</string>

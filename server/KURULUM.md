@@ -1,6 +1,7 @@
-# AltyazıTR Pro sunucusu — Kurulum rehberi
+# AltyazıTR abonelik sunucusu — Kurulum rehberi
 
-Bu rehber, aylık **AltyazıTR Pro** aboneliği için çeviri sunucusunu kurmanızı adım adım anlatır.
+Bu rehber, aylık **AltyazıTR aboneliği** (Standart / Pro / Premium paketleri + 3 gün ücretsiz deneme) için
+çeviri sunucusunu kurmanızı adım adım anlatır.
 Kod bilmeniz gerekmez; yalnızca birkaç web sitesinde tıklayıp kopyala-yapıştır yapacaksınız.
 Toplam süre: yaklaşık 45–60 dakika (Google'ın izinleri etkinleştirmesi bazen birkaç saat sürer).
 
@@ -116,13 +117,13 @@ kullanılabilir. Kullanıcılarınızın altyazılarını korumak için anahtar 
    - `GEMINI_API_KEY` (E-4)
    - `SESSION_SECRET` — **isteğe bağlı.** Girmezseniz ilk yayınlamada otomatik rastgele üretilip
      Cloudflare'de saklanır. (Değiştirirseniz açık oturumlar bir kez yenilenir; sorun olmaz.)
-2. Depoda **Actions** sekmesi → soldan **Sunucu (AltyazıTR Pro)** → sağda **Run workflow** →
+2. Depoda **Actions** sekmesi → soldan **Sunucu (AltyazıTR Pro)** (iş akışının adı değişmedi) → sağda **Run workflow** →
    dal `main` → yeşil **Run workflow**.
 3. 1–3 dakika bekleyin. Yeşil tik ✓ çıkınca iş akışına tıklayın; **Summary** (Özet) bölümünde
    **API adresi** yazar, ör. `https://altyazitr-api.altyazitr.workers.dev`.
 4. **Test:** Tarayıcıda adresin sonuna `/v1/health` ekleyip açın:
    `https://altyazitr-api.altyazitr.workers.dev/v1/health`
-   Ekranda `{"ok":true,"version":"1"}` görüyorsanız sunucu çalışıyor.
+   Ekranda `{"ok":true,"version":"1.1"}` görüyorsanız sunucu çalışıyor.
 
 Kırmızı ✗ çıkarsa: iş akışına tıklayın, kırmızı adımı açın; en alttaki Türkçe hata mesajı genelde
 hangi gizli değerin eksik/yanlış olduğunu söyler. Değeri düzeltip **Run workflow**'u tekrarlayın.
@@ -136,8 +137,8 @@ otomatik yeniden yayınlanır. Gizli değerleri değiştirdiyseniz **Run workflo
 2. GitHub → **Settings → Secrets and variables → Actions → New repository secret**:
    Name: `PRO_API_BASE_URL`, Secret: adres.
 3. Android derleme iş akışı (**Android (AltyazıTR)**) bu değeri Gradle özelliği `proApiBaseUrl`
-   olarak uygulamaya gömer (`BuildConfig.PRO_API_BASE_URL`). Boş bırakılırsa uygulamada Pro
-   "henüz yapılandırılmadı" görünür. Bilgisayarda elle derliyorsanız:
+   olarak uygulamaya gömer (`BuildConfig.PRO_API_BASE_URL`). Boş bırakılırsa uygulamada abonelik
+   "henüz hazır değil" görünür. Bilgisayarda elle derliyorsanız:
    `./gradlew assembleRelease -PproApiBaseUrl=https://altyazitr-api.altyazitr.workers.dev`
 4. Uygulamayı yeniden derleyip Play Console'a yükleyin.
 
@@ -154,11 +155,15 @@ kaydedince sunucu otomatik yeniden yayınlanır):
 | Ayar | Varsayılan | Anlamı |
 |---|---|---|
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Çeviri modeli (en hızlı/ucuz Flash-Lite önerilir) |
-| `MONTHLY_LINE_LIMIT` | `30000` | Abone başına aylık çeviri satırı sınırı (önbellekten gelenler sayılmaz) |
+| `PLAN_LIMITS` | `{"standart":4500,"pro":11000,"premium":27000,"deneme":1500}` | Paket (Play temel plan kimliği) başına aylık yapay zekâ çeviri satırı; `deneme` = 3 günlük deneme boyunca toplam. Önbellekten gelenler sayılmaz. Listeyi **tam** yazın: listede olmayan temel plan "Satın alma doğrulanamadı" alır. |
 | `MAX_TEXT_CHARS` | `600` | Tek satır için en fazla karakter (600'den büyük olamaz) |
 
 Cloudflare panelinden değiştirdiğiniz değişkenler bir sonraki yayınlamada bu dosyadakilerle ezilir;
 kalıcı değişikliği dosyada yapın.
+
+**Sınırları değiştirirseniz** uygulamadaki paket kartlarında yazan sayıları da güncelleyin
+(`android/app/src/main/java/com/metallic/chiaki/billing/BillingLogic.kt` → `Plans`): kartlar bilgi amaçlıdır,
+asıl sınırı sunucu uygular. Fiyatlar kodda değil, Play Console'dadır (`store/MAGAZA_VE_YAYIN.md`).
 
 ---
 
@@ -178,16 +183,36 @@ giriş  ≈ 140 (sistem talimatı) + 30–150 (önceki 0–4 satır bağlamı) +
 çıkış  ≈ 20–40 (Türkçe çeviri) + birkaç "minimal" düşünme jetonu              ≈ 30–50 jeton
 ```
 
-| | Satır başı | 1.000 satır | 10.000 satır | 30.000 satır (tam kota) |
-|---|---|---|---|---|
-| Tipik (~270 giriş + ~45 çıkış) | ~0,0002 $ | ~0,19 $ | ~1,9 $ | ~5,7 $ |
+| | Satır başı | 1.000 satır | 10.000 satır |
+|---|---|---|---|
+| Tipik (~270 giriş + ~45 çıkış) | ~0,0002 $ | ~0,19 $ | ~1,9 $ |
 
-- Sunucu önbelleği aynı satırı ikinci kez **ücretsiz** verir (menüler, "Press X", sık replikler);
-  gerçek maliyet tabloda yazandan genelde %10–30 daha düşüktür.
-- 2 saatlik bir oyun oturumu kabaca 500–1.500 altyazı satırıdır → ~0,10–0,30 $.
-- Aylık abonelik fiyatını belirlerken: Google Play komisyonu (%15) + en yoğun kullanıcının maliyeti.
-  30.000 satırlık kota, en kötü durumda abone başına ~6 $/ay demektir; fiyat buna göre düşükse
-  `MONTHLY_LINE_LIMIT` değerini düşürün (ör. 15.000 ≈ 3 $).
+- Sunucu önbelleği aynı satırı ikinci kez **ücretsiz** verir (menüler, "Press X", sık replikler).
+- Diyaloğu yoğun bir oyunda saatte ~450 altyazı satırı varsayılır (paket kartlarındaki "saat" değerleri buradan).
+
+### Paket başına maliyet ve kâr (aylık, abone başına)
+
+Varsayımlar: satır başı **0,0002 $** (yukarıdaki tipik değer), **USD/TRY 49,69**, fiyattan **%20 KDV** ve
+**%15 Google Play komisyonu** düşülür → net gelir = fiyat ÷ 1,20 × 0,85. "En kötü durum" = abone paketinin
+tamamını önbelleğe hiç denk gelmeden kullanır; "%40 önbellek" = satırların %40'ı sunucu önbelleğinden gelir
+(Gemini'ye gitmez). Fiyatlar öneridir, Play Console'da girilir.
+
+| Paket | Önerilen fiyat | Net gelir | Satır sınırı | Gemini, en kötü durum | Kâr, en kötü durum | Gemini, %40 önbellek | Kâr, %40 önbellek |
+|---|---|---|---|---|---|---|---|
+| Deneme (3 gün) | ücretsiz | 0 | 1.500 (toplam) | 0,30 $ (14,91 TL) | −0,30 $ | 0,18 $ (8,94 TL) | −0,18 $ |
+| Standart (~10 saat) | 79,99 TL/ay | 56,66 TL = 1,14 $ | 4.500 | 0,90 $ (44,72 TL) | **+0,24 $ (%21)** | 0,54 $ (26,83 TL) | +0,60 $ (%53) |
+| Pro (~25 saat) | 149,99 TL/ay | 106,24 TL = 2,14 $ | 11.000 | 2,20 $ (109,32 TL) | **−0,06 $ (−%3)** | 1,32 $ (65,59 TL) | +0,82 $ (%38) |
+| Premium (~60 saat) | 299,99 TL/ay | 212,49 TL = 4,28 $ | 27.000 | 5,40 $ (268,33 TL) | **−1,12 $ (−%26)** | 3,24 $ (161,00 TL) | +1,04 $ (%24) |
+
+Başabaş fiyatı (en kötü durum / %40 önbellek): Standart 63,14 / 37,88 TL · Pro 154,33 / 92,60 TL ·
+Premium 378,81 / 227,29 TL. Sabit gider: Cloudflare Workers Paid 5 $/ay (aşağıda), tablo dışıdır.
+
+Yorum:
+- Paketini sonuna kadar kullanan Pro ve özellikle Premium abonesi, önbellek yardımı olmadan zarar ettirir.
+  Gerçekte çoğu abone sınırın altında kalır ve önbellek oranı %10–40 arasıdır; yine de riski azaltmak için
+  Premium'u 349,99–379,99 TL'ye çekmeyi veya `PLAN_LIMITS` içinde `premium` değerini ~20.000'e indirmeyi düşünün.
+- Deneme, yeni abone başına en çok ~0,30 $ maliyettir (Play denemeyi yalnızca hiç abone olmamış hesaplara verir).
+- Kur veya Gemini fiyatı değişirse tabloyu aynı formülle yeniden hesaplayın.
 
 ### Cloudflare Workers + KV
 
@@ -221,6 +246,12 @@ Abonelik doğrulaması ücretsizdir (sonuçlar 10 dakika önbelleğe alınır; o
   kabul eder; sunucu sayacı en fazla ~1,5 sn'de bir yazar. Çok nadiren bir abonenin birkaç satırı
   sayılmayabilir ya da sınır birkaç satır geç devreye girebilir. Ödeme açısından önemsizdir.
 - **Hız sınırı** (abone başına ~10 istek/sn) her Cloudflare sunucusunda ayrı tutulur; kaba bir korumadır.
-- Abone aboneliğini iptal edip yeniden alırsa yeni bir satın alma jetonu oluşur ve o ayın kotası
-  sıfırdan başlar.
+- **Paket değişikliği / yeniden abonelik:** Google yeni bir satın alma jetonu verir ve eskisini
+  `linkedPurchaseToken` ile bildirir. Sunucu bu zinciri izler ve aynı ay içinde kullanılan satırları yeni
+  pakete taşır (yeni paketin sınırıyla karşılaştırılır); kullanılmayan satırlar devredilmez. Eski jeton
+  sunucuya hiç gelmemişse zincir oradan başlar. İptal edip **süresi dolduktan sonra** yeniden abone olan
+  kişide bağlantı yoktur; kota sıfırdan başlar (deneme ise Play tarafından tekrar verilmez).
+- **Deneme tespiti:** Google'ın `offerPhase.freeTrial` alanına bakılır; bu alan yoksa teklif kimliği
+  `deneme-3gun` ve abonelik başlangıcı son 3 gün içindeyse deneme sayılır. Deneme bitince (en geç 1 saat
+  içinde, oturum yenilenince) paketin aylık sınırı başlar; deneme satırları ilk aya sayılmaz.
 - Sunucu altyazı metnini **asla** kayda (log) yazmaz; yalnızca yol, durum kodu, süre ve hata kodu.

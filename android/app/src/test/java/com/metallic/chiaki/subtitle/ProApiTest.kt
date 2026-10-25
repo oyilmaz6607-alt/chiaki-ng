@@ -25,7 +25,7 @@ class ProApiTest
 	{
 		val body = MiniJson.parse(ProApi.sessionBody("tok\"en", "1.2.3")) as Map<*, *>
 		assertEquals("com.altyazitr.oyun", body["packageName"])
-		assertEquals("altyazitr_pro", body["productId"])
+		assertEquals("altyazitr_abonelik", body["productId"])
 		assertEquals("tok\"en", body["purchaseToken"])
 		assertEquals("1.2.3", body["appVersion"])
 	}
@@ -53,6 +53,19 @@ class ProApiTest
 		assertEquals(ProApi.SessionResult.Ok("abc.def", 1793000000000L, ProQuota(123, 30000, 1793491200000L)), ok)
 		val noQuota = ProApi.parseSession(200, """{"ok":true,"sessionToken":"t","expiresAt":5}""") as ProApi.SessionResult.Ok
 		assertNull(noQuota.quota)
+		assertNull(ok.let { (it as ProApi.SessionResult.Ok).plan })
+		// v1.1: paket alanları
+		val pro = ProApi.parseSession(200, """{"ok":true,"sessionToken":"t","expiresAt":5,"plan":"pro","planName":"Pro","basePlan":"pro","basePlanName":"Pro","trial":false,"quota":{"used":3120,"limit":11000,"resetAt":7}}""") as ProApi.SessionResult.Ok
+		assertEquals(ProPlan("pro", "Pro", "pro", false), pro.plan)
+		assertEquals(ProQuota(3120, 11000, 7), pro.quota)
+		val trial = ProApi.parseSession(200, """{"ok":true,"sessionToken":"t","expiresAt":5,"plan":"deneme","planName":"Deneme","basePlan":"premium","trial":true}""") as ProApi.SessionResult.Ok
+		assertEquals(ProPlan("deneme", "Deneme", "premium", true), trial.plan)
+		val noBase = ProApi.parseSession(200, """{"ok":true,"sessionToken":"t","expiresAt":5,"plan":"standart"}""") as ProApi.SessionResult.Ok
+		assertEquals(ProPlan("standart", null, "standart", false), noBase.plan)
+		val trialNoBase = ProApi.parseSession(200, """{"ok":true,"sessionToken":"t","expiresAt":5,"plan":"deneme","trial":true}""") as ProApi.SessionResult.Ok
+		assertNull(trialNoBase.plan!!.basePlan)
+		val badPlan = ProApi.parseSession(200, """{"ok":true,"sessionToken":"t","expiresAt":5,"plan":"Pro Plus!"}""") as ProApi.SessionResult.Ok
+		assertNull(badPlan.plan)
 		val denied = ProApi.parseSession(403, """{"ok":false,"code":"not_subscribed","message":"Abonelik bitmiş"}""")
 		assertEquals(ProApi.SessionResult.Failure(ProError("not_subscribed", 403, "Abonelik bitmiş")), denied)
 		val broken = ProApi.parseSession(200, """{"ok":true}""") as ProApi.SessionResult.Failure
@@ -135,16 +148,16 @@ class ProApiTest
 		val utc = TimeZone.getTimeZone("UTC")
 		val now = 1_792_972_800_000L // 26 Ekim 2026
 		val quota = ProQuota(30000, 30000, 1_793_491_200_000L)
-		assertEquals("Bu ayki Pro çeviri sınırına ulaşıldı; 1 Kasım tarihinde yenilenir.",
+		assertEquals("Paketinizin yapay zekâ çeviri hakkı doldu; 1 Kasım tarihinde yenilenir.",
 			ProApi.userMessage(ProError("quota_exceeded", 429, "x"), quota, now, utc))
 		assertEquals("Sunucu mesajı", ProApi.userMessage(ProError("quota_exceeded", 429, "Sunucu mesajı"), null, now, utc))
 		assertEquals(ProApi.MSG_NOT_CONFIGURED, ProApi.userMessage(ProError(ProApi.CODE_NOT_CONFIGURED)))
 		assertTrue(ProApi.userMessage(ProError("not_subscribed", 403)).contains("etkin değil"))
 		assertEquals("Yeni kod", ProApi.userMessage(ProError("brand_new", 418, "Yeni kod")))
-		assertEquals("Pro hatası (brand_new)", ProApi.userMessage(ProError("brand_new", 418)))
+		assertEquals("Abonelik hatası (brand_new)", ProApi.userMessage(ProError("brand_new", 418)))
 		listOf("not_subscribed", "invalid_purchase", "rate_limited", "server_error", "unauthorized", "bad_request",
 			"upstream_error", "timeout", "network", "no_purchase").forEach {
-			assertFalse(it, ProApi.userMessage(ProError(it)).startsWith("Pro hatası"))
+			assertFalse(it, ProApi.userMessage(ProError(it)).startsWith("Abonelik hatası"))
 		}
 		assertEquals(403, ProApi.backoffCode(ProError("quota_exceeded", 429)))
 		assertEquals(429, ProApi.backoffCode(ProError("rate_limited", 429)))

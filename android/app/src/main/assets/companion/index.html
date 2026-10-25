@@ -92,6 +92,8 @@ section.panel.active { display: block; }
 .card h2 { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin: 0 0 12px; font-weight: 600; }
 .muted { color: var(--muted); }
 .small { font-size: 14px; }
+.quota-bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.15); overflow: hidden; margin-top: 8px; }
+.quota-bar > span { display: block; height: 100%; width: 0; background: var(--accent); }
 .row { display: flex; align-items: center; gap: 10px; }
 
 .btn {
@@ -717,11 +719,12 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 		root.textContent = "";
 		specs.forEach(function (s) {
 			if (GROUPS[s.key]) root.appendChild(el("h2", { text: GROUPS[s.key], style: "margin-top:" + (root.childNodes.length ? "18px" : "0") }));
-			// AltyazıTR Pro durumu: yalnızca bilgi (abonelik TV'deki Google Play hesabıyla başlatılır).
+			// Abonelik durumu (paket + bu dönemin kotası): yalnızca bilgi (abonelik TV'deki Google Play hesabıyla yapılır).
 			if (s.key === "subtitle_translation_engine") {
 				root.appendChild(el("div", { cls: "ctl", id: "pro-box" }, [
-					el("div", { cls: "ctl-head" }, [el("b", { text: "AltyazıTR Pro" }), el("span", { cls: "muted small", id: "pro-badge" })]),
-					el("div", { cls: "help", id: "pro-status" })
+					el("div", { cls: "ctl-head" }, [el("b", { text: "AltyazıTR Abonelik" }), el("span", { cls: "muted small", id: "pro-badge" })]),
+					el("div", { cls: "help", id: "pro-status" }),
+					el("div", { cls: "quota-bar", id: "pro-quota", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100" }, [el("span", { id: "pro-quota-fill" })])
 				]));
 			}
 			var out = el("output", { id: "out-" + s.key });
@@ -835,7 +838,16 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 		}
 		$("pro-box").style.display = "";
 		st.textContent = proInfo.status || "";
-		badge.textContent = proInfo.subscribed ? (proInfo.active ? "Etkin · kullanılıyor" : "Etkin") : "Abone değil";
+		var name = proInfo.planName || "Etkin";
+		badge.textContent = proInfo.subscribed ? (proInfo.active ? name + " · kullanılıyor" : name) : "Abone değil";
+		var bar = $("pro-quota");
+		var q = proInfo.subscribed ? proInfo.quota : null;
+		bar.style.display = q ? "" : "none";
+		if (q) {
+			var pct = Math.max(0, Math.min(100, Math.round((q.permille || 0) / 10)));
+			$("pro-quota-fill").style.width = pct + "%";
+			bar.setAttribute("aria-valuenow", String(pct));
+		}
 	}
 
 	function syncControls() {

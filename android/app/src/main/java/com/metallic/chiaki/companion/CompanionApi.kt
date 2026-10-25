@@ -8,6 +8,7 @@ import android.os.Looper
 import android.util.Log
 import com.metallic.chiaki.BuildConfig
 import com.metallic.chiaki.R
+import com.metallic.chiaki.billing.PlanText
 import com.metallic.chiaki.billing.PriceText
 import com.metallic.chiaki.billing.ProStore
 import com.metallic.chiaki.common.AppDatabase
@@ -482,24 +483,38 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 	}
 
 	/**
-	 * AltyazıTR Pro durumu (yalnızca okunur): abonelik telefondan başlatılamaz, TV'deki Play hesabıyla yapılır.
-	 * Satın alma jetonu asla gönderilmez.
+	 * Abonelik durumu (yalnızca okunur): paket adı ve bu dönemin kotası. Abonelik telefondan başlatılamaz,
+	 * TV'deki Play hesabıyla yapılır. Satın alma jetonu asla gönderilmez.
 	 */
 	private fun proJson(): JSONObject
 	{
 		val store = ProStore(context)
 		val subscribed = store.isSubscribed
-		val quota = store.quota
+		val quota = if(subscribed) store.quota else null
+		val plan = if(subscribed) store.plan else null
+		val planLabel = PlanText.badge(plan?.plan)
+		val trial = plan?.trial == true
 		val status = when
 		{
-			subscribed && quota != null -> "AltyazıTR Pro etkin · " + PriceText.quotaLine(quota.used, quota.limit, quota.resetAt)
-			subscribed -> "AltyazıTR Pro etkin"
-			else -> "AltyazıTR Pro: abone değilsiniz. Aboneliği TV'den başlatın (Ayarlar → AltyazıTR Pro veya ana ekrandaki Pro düğmesi)."
+			subscribed && quota != null -> (planLabel ?: "Abonelik") + " etkin · " +
+					PriceText.quotaLine(quota.used, quota.limit, quota.resetAt, trial = trial)
+			subscribed -> (planLabel ?: "Abonelik") + " etkin"
+			else -> "Abone değilsiniz. Paketler (Standart, Pro, Premium) ve 3 gün ücretsiz deneme TV'de: ana ekrandaki \"Abone ol\" düğmesi veya Ayarlar → AltyazıTR Abonelik."
 		}
-		return JSONObject()
+		val o = JSONObject()
 			.put("subscribed", subscribed)
 			.put("active", subscribed && preferences.translationEngine == TranslationSettings.ENGINE_PRO)
 			.put("status", status)
+			.put("plan", plan?.plan ?: JSONObject.NULL)
+			.put("planName", planLabel ?: JSONObject.NULL)
+			.put("trial", trial)
+		if(quota != null)
+			o.put("quota", JSONObject()
+				.put("used", quota.used)
+				.put("limit", quota.limit)
+				.put("resetAt", quota.resetAt)
+				.put("permille", PriceText.quotaPermille(quota.used, quota.limit)))
+		return o
 	}
 
 	override fun getSettings(): HttpResponse =

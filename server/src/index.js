@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// AltyazıTR Pro çeviri sunucusu (Cloudflare Worker).
-// Sözleşme: ../../PRO_API.md (v1). Bağımlılık yok; yalnızca Workers Web API'leri.
+// AltyazıTR abonelik çeviri sunucusu (Cloudflare Worker).
+// Sözleşme: ../PRO_API.md (v1.1). Bağımlılık yok; yalnızca Workers Web API'leri.
 //
 // Gizli değerler (wrangler secret): GEMINI_API_KEY, SESSION_SECRET, GOOGLE_SERVICE_ACCOUNT_JSON
-// Değişkenler (wrangler.toml [vars]): GEMINI_MODEL, MONTHLY_LINE_LIMIT, MAX_TEXT_CHARS
+// Değişkenler (wrangler.toml [vars]): GEMINI_MODEL, PLAN_LIMITS, MAX_TEXT_CHARS
 // KV bağlaması: ALTYAZI_KV
 //
 // Gizlilik: altyazı metni hiçbir zaman log'lanmaz; yalnızca yol, durum, süre ve hata kodu.
@@ -20,20 +20,21 @@
  * @property {string} [SESSION_SECRET]
  * @property {string} [GOOGLE_SERVICE_ACCOUNT_JSON]
  * @property {string} [GEMINI_MODEL]
- * @property {string} [MONTHLY_LINE_LIMIT]
+ * @property {string} [PLAN_LIMITS] JSON: temel plan kimliği → aylık satır sınırı; "deneme" = deneme boyunca toplam
  * @property {string} [MAX_TEXT_CHARS]
  * @property {string} [UPSTREAM_TIMEOUT_MS] yalnızca test/ayar için (varsayılan 4000)
  *
  * @typedef {{waitUntil: (p: Promise<any>) => void}} Ctx
  * @typedef {{en: string, tr: string}} Pair
  * @typedef {{used: number, limit: number, resetAt: number}} Quota
+ * @typedef {{sub: string, exp: number, plan: string, qb: string, te?: number}} SessionClaims
  */
 
 // ---------------------------------------------------------------- sabitler
 
-export const API_VERSION = "1";
+export const API_VERSION = "1.1";
 export const PACKAGE_NAME = "com.altyazitr.oyun";
-export const PRODUCT_ID = "altyazitr_pro";
+export const PRODUCT_ID = "altyazitr_abonelik";
 export const MAX_BODY_BYTES = 8 * 1024;
 export const MAX_TEXT_HARD = 600; // sözleşme üst sınırı
 export const MAX_CONTEXT = 4;
@@ -43,7 +44,20 @@ export const VERIFY_CACHE_TTL_S = 600; // aktif / geçersiz sonuçlar
 export const VERIFY_NEG_CACHE_TTL_S = 60; // "abone değil" kısa tutulur (yeni satın alma hemen geçsin)
 export const TR_CACHE_TTL_S = 30 * 24 * 3600;
 export const DEFAULT_MODEL = "gemini-3.5-flash-lite";
-export const DEFAULT_LIMIT = 30000;
+
+// ---- paketler (tek yapılandırma yeri; sınırlar wrangler.toml → PLAN_LIMITS ile değiştirilebilir)
+/** Deneme dönemi için kota/plan kimliği (Play'de bir temel plan değil, her temel plandaki teklif). */
+export const TRIAL_PLAN = "deneme";
+/** Play Console'daki ücretsiz deneme teklifinin kimliği (her temel planda aynı). */
+export const TRIAL_OFFER_ID = "deneme-3gun";
+export const TRIAL_DAYS = 3;
+/** Temel plan kimliği → aylık satır sınırı; "deneme" = 3 günlük deneme boyunca toplam satır. */
+export const DEFAULT_PLAN_LIMITS = Object.freeze({ standart: 4500, pro: 11000, premium: 27000, deneme: 1500 });
+/** Kullanıcıya gösterilen paket adları. */
+export const PLAN_NAMES = Object.freeze({ standart: "Standart", pro: "Pro", premium: "Premium", deneme: "Deneme" });
+/** Plan değişikliği zinciri (linkedPurchaseToken → kota kovası) KV'de bu kadar tutulur. */
+export const LINK_TTL_S = 400 * 24 * 3600;
+export const TRIAL_QUOTA_TTL_S = 30 * 24 * 3600;
 export const DEFAULT_TIMEOUT_MS = 4000;
 export const MAX_OUTPUT_TOKENS = 200;
 export const SHORT_LINE_WORDS = 6;
@@ -68,7 +82,7 @@ export const SYSTEM_PROMPT = [
 export const MESSAGES = {
 	bad_request: "Geçersiz istek.",
 	unauthorized: "Oturum süresi doldu, yeniden bağlanılıyor.",
-	not_subscribed: "AltyazıTR Pro aboneliğiniz etkin değil.",
+	not_subscribed: "AltyazıTR aboneliğiniz etkin değil.",
 	invalid_purchase: "Satın alma doğrulanamadı.",
 	rate_limited: "Çok fazla istek. Lütfen biraz bekleyin.",
 	quota_exceeded: "Bu ayki çeviri sınırına ulaşıldı.",
@@ -129,6 +143,71 @@ export function monthKey(nowMs) {
 export function nextMonthStart(nowMs) {
 	const d = new Date(nowMs);
 	return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+}
+
+/** 27000 → "27.000" (Türkçe binlik ayırıcı). */
+export function fmtCount(n) {
+	return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+/** unix ms → "01.11.2026" (UTC). */
+function fmtDate(ms) {
+	const d = new Date(ms);
+	return String(d.getUTCDate()).padStart(2, "0") + "." + String(d.getUTCMonth() + 1).padStart(2, "0") + "." + d.getUTCFullYear();
+}
+
+// ---------------------------------------------------------------- paketler
+
+/** @type {{raw: string|undefined, limits: Record<string, number>}|null} */
+let limitsMem = null;
+
+/**
+ * env.PLAN_LIMITS (JSON nesnesi) → { planKimliği: sınır }. Boş/bozuksa varsayılanlar kullanılır.
+ * Liste tam yazılmalıdır: listede olmayan temel plan "invalid_purchase" sayılır ("deneme" yazılmazsa varsayılanı).
+ * @param {Env} env @returns {Record<string, number>}
+ */
+export function planLimits(env) {
+	const raw = env.PLAN_LIMITS;
+	if (limitsMem && limitsMem.raw === raw) return limitsMem.limits;
+	/** @type {Record<string, number>} */
+	let limits = { ...DEFAULT_PLAN_LIMITS };
+	if (typeof raw === "string" && raw.trim()) {
+		try {
+			const o = JSON.parse(raw);
+			/** @type {Record<string, number>} */
+			const parsed = {};
+			let ok = !!o && typeof o === "object" && !Array.isArray(o);
+			for (const [k, v] of ok ? Object.entries(o) : []) {
+				if (!/^[a-z0-9-]{1,40}$/.test(k) || !Number.isInteger(v) || v < 1 || v > 10_000_000) { ok = false; break; }
+				parsed[k] = v;
+			}
+			if (ok && Object.keys(parsed).some((k) => k !== TRIAL_PLAN)) {
+				if (!(TRIAL_PLAN in parsed)) parsed[TRIAL_PLAN] = DEFAULT_PLAN_LIMITS[TRIAL_PLAN];
+				limits = parsed;
+			}
+		} catch {}
+	}
+	limitsMem = { raw, limits };
+	return limits;
+}
+
+/** @param {string} plan */
+export function planName(plan) {
+	return Object.prototype.hasOwnProperty.call(PLAN_NAMES, plan) ? PLAN_NAMES[/** @type {keyof typeof PLAN_NAMES} */ (plan)] : plan.charAt(0).toUpperCase() + plan.slice(1);
+}
+
+/**
+ * Sınırı bir üst olan ücretli paket (yükseltme önerisi); en üstteyse veya denemedeyse null.
+ * @param {Record<string, number>} limits @param {string} plan
+ */
+export function nextPlan(limits, plan) {
+	if (plan === TRIAL_PLAN || !(plan in limits)) return null;
+	let best = null;
+	for (const [k, v] of Object.entries(limits)) {
+		if (k === TRIAL_PLAN || v <= limits[plan]) continue;
+		if (best === null || v < limits[best]) best = k;
+	}
+	return best;
 }
 
 /** Boşlukları tekleştir, kırp, Unicode NFC. */
@@ -270,11 +349,17 @@ async function hmacKey(secret) {
 }
 
 /**
- * base64url(payload).base64url(HMAC-SHA256(payload_b64))
+ * base64url(payload).base64url(HMAC-SHA256(payload_b64)); payload v2: {sub, exp, v, plan, qb[, te]}.
  * @param {string} secret @param {string} sub @param {number} exp
+ * @param {string} [plan] paket ("standart" | "pro" | "premium" | "deneme")
+ * @param {string} [qb] kota kovası (32 hex; plan değişikliğinde ilk satın almanınki)
+ * @param {number} [te] deneme bitişi (unix ms; yalnızca denemede)
  */
-export async function signSession(secret, sub, exp) {
-	const p = b64urlEncode(enc.encode(JSON.stringify({ sub, exp, v: 1 })));
+export async function signSession(secret, sub, exp, plan = "standart", qb = sub, te) {
+	/** @type {any} */
+	const claims = { sub, exp, v: 2, plan, qb };
+	if (typeof te === "number") claims.te = te;
+	const p = b64urlEncode(enc.encode(JSON.stringify(claims)));
 	const sig = await crypto.subtle.sign("HMAC", await hmacKey(secret), enc.encode(p));
 	return p + "." + b64urlEncode(sig);
 }
@@ -282,7 +367,7 @@ export async function signSession(secret, sub, exp) {
 /**
  * İmza sabit zamanlı (crypto.subtle.verify) doğrulanır. Geçersiz/süresi dolmuş → null.
  * @param {string} secret @param {string} token @param {number} nowMs
- * @returns {Promise<{sub: string, exp: number}|null>}
+ * @returns {Promise<SessionClaims|null>}
  */
 export async function verifySession(secret, token, nowMs) {
 	if (typeof token !== "string" || token.length > 512) return null;
@@ -296,9 +381,15 @@ export async function verifySession(secret, token, nowMs) {
 	if (!raw) return null;
 	let p;
 	try { p = JSON.parse(dec.decode(raw)); } catch { return null; }
-	if (!p || p.v !== 1 || typeof p.sub !== "string" || !/^[0-9a-f]{32}$/.test(p.sub)) return null;
+	// v1 (paketsiz) jetonlar kabul edilmez: uygulama 401 alınca yeni oturum açar.
+	if (!p || p.v !== 2 || typeof p.sub !== "string" || !/^[0-9a-f]{32}$/.test(p.sub)) return null;
 	if (typeof p.exp !== "number" || !(p.exp > nowMs)) return null;
-	return { sub: p.sub, exp: p.exp };
+	if (typeof p.plan !== "string" || !/^[a-z0-9-]{1,40}$/.test(p.plan)) return null;
+	if (typeof p.qb !== "string" || !/^[0-9a-f]{32}$/.test(p.qb)) return null;
+	/** @type {SessionClaims} */
+	const out = { sub: p.sub, exp: p.exp, plan: p.plan, qb: p.qb };
+	if (typeof p.te === "number") out.te = p.te;
+	return out;
 }
 
 // ---------------------------------------------------------------- hız sınırı (isolate başına bellek)
@@ -395,30 +486,79 @@ export async function getGoogleAccessToken(env, nowMs) {
 // ---------------------------------------------------------------- Play abonelik doğrulama
 
 /**
+ * Satır öğesi ücretsiz deneme aşamasında mı?
+ * Asıl kaynak `lineItems[].offerPhase.freeTrial` (OfferPhase birleşimi: freeTrial | introductoryPrice |
+ * prorationPeriod | basePrice). offerPhase hiç yoksa (eski yanıt): teklif kimliği TRIAL_OFFER_ID ve abonelik
+ * başlangıcı (`startTime`) son TRIAL_DAYS gün içinde ise deneme sayılır.
+ * @param {any} li @param {any} sub @param {number} nowMs
+ */
+export function isTrialLineItem(li, sub, nowMs) {
+	const phase = li && li.offerPhase;
+	if (phase && typeof phase === "object") return !!phase.freeTrial;
+	const offerId = li && li.offerDetails && li.offerDetails.offerId;
+	if (offerId !== TRIAL_OFFER_ID) return false;
+	const start = Date.parse(sub && sub.startTime);
+	return Number.isFinite(start) && start <= nowMs && nowMs - start < TRIAL_DAYS * 24 * 3600e3;
+}
+
+/**
  * SubscriptionPurchaseV2 yanıtını değerlendirir (saf).
  * https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.subscriptionsv2
+ * Bizim ürünümüzün süresi dolmamış satır öğelerinden bitişi en geç olan esas alınır; paket onun
+ * `offerDetails.basePlanId` alanıdır (ertelenmiş düşürmede eski paket dönem sonuna kadar geçerlidir).
  * @param {any} sub @param {number} nowMs
- * @returns {{active: true, expiryMs: number} | {active: false}}
+ * @returns {{active: true, expiryMs: number, basePlanId: string, offerId: string|null, trial: boolean, linkedPurchaseToken: string|null} | {active: false}}
  */
 export function evaluateSubscription(sub, nowMs) {
 	if (!sub || typeof sub !== "object" || !ACTIVE_STATES.has(sub.subscriptionState)) return { active: false };
 	const items = Array.isArray(sub.lineItems) ? sub.lineItems : [];
 	let best = 0;
+	/** @type {any} */
+	let item = null;
 	for (const li of items) {
 		if (!li || li.productId !== PRODUCT_ID || typeof li.expiryTime !== "string") continue;
 		const t = Date.parse(li.expiryTime);
-		if (Number.isFinite(t) && t > nowMs && t > best) best = t;
+		if (Number.isFinite(t) && t > nowMs && t > best) { best = t; item = li; }
 	}
-	return best ? { active: true, expiryMs: best } : { active: false };
+	if (!best) return { active: false };
+	const od = item.offerDetails && typeof item.offerDetails === "object" ? item.offerDetails : {};
+	return {
+		active: true,
+		expiryMs: best,
+		basePlanId: typeof od.basePlanId === "string" ? od.basePlanId : "",
+		offerId: typeof od.offerId === "string" ? od.offerId : null,
+		trial: isTrialLineItem(item, sub, nowMs),
+		linkedPurchaseToken: typeof sub.linkedPurchaseToken === "string" && sub.linkedPurchaseToken ? sub.linkedPurchaseToken : null,
+	};
+}
+
+/**
+ * Kota kovası: plan değişikliği / yeniden abonelikte Google yeni bir satın alma jetonu verir ve eskisini
+ * `linkedPurchaseToken` alanında bildirir. Aynı ay içinde kullanım sıfırlanmasın diye zincirin ilk
+ * (bilinen en eski) jetonunun özeti kova olarak kullanılır: lk:<sha256(jeton)> → kova.
+ * @param {Env} env @param {string} tokenHash @param {string|null} linkedToken
+ */
+export async function quotaBucket(env, tokenHash, linkedToken) {
+	const own = tokenHash.slice(0, 32);
+	if (!linkedToken) return own;
+	const lh = await sha256Hex(linkedToken);
+	let b = null;
+	try { b = await env.ALTYAZI_KV.get("lk:" + lh); } catch {}
+	if (!b || !/^[0-9a-f]{32}$/.test(b)) b = lh.slice(0, 32);
+	try {
+		if ((await env.ALTYAZI_KV.get("lk:" + tokenHash)) !== b)
+			await env.ALTYAZI_KV.put("lk:" + tokenHash, b, { expirationTtl: LINK_TTL_S });
+	} catch {}
+	return b;
 }
 
 /**
  * Sonuç KV'de sha256(token) anahtarıyla önbelleğe alınır.
  * @param {Env} env @param {string} purchaseToken @param {string} tokenHash @param {number} nowMs
- * @returns {Promise<{state: "active", expiryMs: number} | {state: "inactive"} | {state: "invalid"}>}
+ * @returns {Promise<{state: "active", expiryMs: number, basePlanId: string, trial: boolean, bucket: string} | {state: "inactive"} | {state: "invalid"}>}
  */
 export async function verifyPurchase(env, purchaseToken, tokenHash, nowMs) {
-	const ck = "pv:v1:" + tokenHash;
+	const ck = "pv:v2:" + tokenHash;
 	try {
 		const c = await env.ALTYAZI_KV.get(ck);
 		if (c) {
@@ -435,7 +575,10 @@ export async function verifyPurchase(env, purchaseToken, tokenHash, nowMs) {
 	let ttl = VERIFY_CACHE_TTL_S;
 	if (res.status === 200) {
 		const ev = evaluateSubscription(await res.json(), nowMs);
-		if (ev.active) result = { state: "active", expiryMs: ev.expiryMs };
+		if (ev.active) {
+			const bucket = await quotaBucket(env, tokenHash, ev.linkedPurchaseToken);
+			result = { state: "active", expiryMs: ev.expiryMs, basePlanId: ev.basePlanId, trial: ev.trial, bucket };
+		}
 		else { result = { state: "inactive" }; ttl = VERIFY_NEG_CACHE_TTL_S; }
 	} else if (res.status === 400 || res.status === 404) {
 		result = { state: "invalid" };
@@ -458,14 +601,17 @@ export async function verifyPurchase(env, purchaseToken, tokenHash, nowMs) {
 const quotaMem = new Map();
 const QUOTA_FLUSH_MS = 1500;
 
-/** @param {string} sub @param {number} nowMs */
-export function quotaKey(sub, nowMs) {
-	return "q:" + sub + ":" + monthKey(nowMs);
+/**
+ * Aylık: q:<kova>:YYYY-MM; deneme: q:<kova>:trial (ay değil, deneme boyunca toplam).
+ * @param {string} bucket @param {number} nowMs @param {boolean} [trial]
+ */
+export function quotaKey(bucket, nowMs, trial = false) {
+	return "q:" + bucket + ":" + (trial ? "trial" : monthKey(nowMs));
 }
 
-/** @param {Env} env @param {string} sub @param {number} nowMs */
-export async function readQuotaUsed(env, sub, nowMs) {
-	const key = quotaKey(sub, nowMs);
+/** @param {Env} env @param {string} bucket @param {number} nowMs @param {boolean} [trial] */
+export async function readQuotaUsed(env, bucket, nowMs, trial = false) {
+	const key = quotaKey(bucket, nowMs, trial);
 	let base = 0;
 	try { base = Number.parseInt((await env.ALTYAZI_KV.get(key)) || "0", 10) || 0; } catch {}
 	const m = quotaMem.get(key);
@@ -478,11 +624,11 @@ export async function readQuotaUsed(env, sub, nowMs) {
 
 /**
  * Bir satır sayar. KV yazımı en fazla ~1,5 sn'de bir; yazılamayanlar bellekte bekler.
- * @param {Env} env @param {string} sub @param {number} nowMs
+ * @param {Env} env @param {string} bucket @param {number} nowMs @param {boolean} [trial]
  * @returns {{used: number, flush: Promise<void>|null}}
  */
-export function incrementQuota(env, sub, nowMs) {
-	const key = quotaKey(sub, nowMs);
+export function incrementQuota(env, bucket, nowMs, trial = false) {
+	const key = quotaKey(bucket, nowMs, trial);
 	let m = quotaMem.get(key);
 	if (!m) {
 		if (quotaMem.size > 20000) quotaMem.clear();
@@ -500,7 +646,7 @@ export function incrementQuota(env, sub, nowMs) {
 		try {
 			const cur = Number.parseInt((await env.ALTYAZI_KV.get(key)) || "0", 10) || 0;
 			const next = Math.max(cur, entry.base) + add;
-			await env.ALTYAZI_KV.put(key, String(next), { expirationTtl: 62 * 24 * 3600 });
+			await env.ALTYAZI_KV.put(key, String(next), { expirationTtl: trial ? TRIAL_QUOTA_TTL_S : 62 * 24 * 3600 });
 			entry.base = next;
 		} catch {
 			entry.pending += add; // sonraki istekte yeniden denenir
@@ -509,9 +655,29 @@ export function incrementQuota(env, sub, nowMs) {
 	return { used, flush };
 }
 
-/** @param {number} used @param {number} limit @param {number} nowMs @returns {Quota} */
-function quotaObj(used, limit, nowMs) {
-	return { used, limit, resetAt: nextMonthStart(nowMs) };
+/** @param {number} used @param {number} limit @param {number} resetAt @returns {Quota} */
+function quotaObj(used, limit, resetAt) {
+	return { used, limit, resetAt };
+}
+
+/**
+ * Kota penceresinin bitişi: denemede deneme sonu, aksi halde sonraki UTC ayın başı.
+ * @param {boolean} trial @param {number|undefined} trialEnd @param {number} nowMs
+ */
+function quotaResetAt(trial, trialEnd, nowMs) {
+	return trial && typeof trialEnd === "number" && trialEnd > nowMs ? trialEnd : nextMonthStart(nowMs);
+}
+
+/**
+ * quota_exceeded mesajı (Türkçe); ücretli pakette bir üst paket önerilir.
+ * @param {Record<string, number>} limits @param {string} plan @param {number} limit @param {number} resetAt
+ */
+export function quotaExceededMessage(limits, plan, limit, resetAt) {
+	if (plan === TRIAL_PLAN)
+		return `Ücretsiz denemenin ${fmtCount(limit)} satırlık çeviri hakkı doldu. Deneme ${fmtDate(resetAt)} tarihinde bitince paketinizin aylık hakkı başlar.`;
+	const up = nextPlan(limits, plan);
+	return `${planName(plan)} paketinin bu ayki ${fmtCount(limit)} satırlık çeviri hakkı doldu. Hak ${fmtDate(resetAt)} tarihinde yenilenir.` +
+		(up ? ` Daha fazlası için ${planName(up)} paketine geçebilirsiniz.` : "");
 }
 
 // ---------------------------------------------------------------- Gemini
@@ -728,12 +894,23 @@ async function handleSession(request, env, now) {
 	const r = await verifyPurchase(env, v.purchaseToken, tokenHash, now);
 	if (r.state === "invalid") throw new HttpError(400, "invalid_purchase");
 	if (r.state !== "active") throw new HttpError(403, "not_subscribed");
+	// Paket: temel plan kimliği PLAN_LIMITS'te olmalı (bilinmeyen plan → invalid_purchase).
+	const limits = planLimits(env);
+	const basePlan = r.basePlanId;
+	if (!basePlan || basePlan === TRIAL_PLAN || !Object.prototype.hasOwnProperty.call(limits, basePlan)) throw new HttpError(400, "invalid_purchase");
+	const trial = r.trial === true;
+	const plan = trial ? TRIAL_PLAN : basePlan;
+	const limit = limits[plan];
 	const sub = tokenHash.slice(0, 32);
+	const bucket = typeof r.bucket === "string" && /^[0-9a-f]{32}$/.test(r.bucket) ? r.bucket : sub;
 	const exp = Math.min(now + SESSION_TTL_MS, r.expiryMs);
-	const sessionToken = await signSession(env.SESSION_SECRET, sub, exp);
-	const limit = intEnv(env.MONTHLY_LINE_LIMIT, DEFAULT_LIMIT, 1, 10_000_000);
-	const used = await readQuotaUsed(env, sub, now);
-	return json(200, { ok: true, sessionToken, expiresAt: exp, quota: quotaObj(used, limit, now) });
+	const sessionToken = await signSession(env.SESSION_SECRET, sub, exp, plan, bucket, trial ? r.expiryMs : undefined);
+	const used = await readQuotaUsed(env, bucket, now, trial);
+	return json(200, {
+		ok: true, sessionToken, expiresAt: exp,
+		plan, planName: planName(plan), basePlan, basePlanName: planName(basePlan), trial,
+		quota: quotaObj(used, limit, quotaResetAt(trial, r.expiryMs, now)),
+	});
 }
 
 /** @param {Request} request @param {Env} env @param {Ctx} ctx @param {number} now */
@@ -750,23 +927,24 @@ async function handleTranslate(request, env, ctx, now) {
 	if (!v.ok) throw new HttpError(400, "bad_request");
 	const streaming = (request.headers.get("accept") || "").toLowerCase().includes("application/x-ndjson");
 	const model = /^[a-z0-9.-]{3,64}$/.test(env.GEMINI_MODEL || "") ? /** @type {string} */ (env.GEMINI_MODEL) : DEFAULT_MODEL;
-	const limit = intEnv(env.MONTHLY_LINE_LIMIT, DEFAULT_LIMIT, 1, 10_000_000);
+	const limits = planLimits(env);
+	// Paket sonradan PLAN_LIMITS'ten kaldırıldıysa yeni oturum açılsın (orada invalid_purchase döner).
+	if (!Object.prototype.hasOwnProperty.call(limits, sess.plan)) throw new HttpError(401, "unauthorized");
+	const limit = limits[sess.plan];
+	const trial = sess.plan === TRIAL_PLAN;
+	const resetAt = quotaResetAt(trial, sess.te, now);
 
 	const ck = await cacheKey(model, v.text, v.context, v.speaker);
 	/** @type {string|null} */
 	let hit = null;
 	try { hit = await env.ALTYAZI_KV.get(ck, { cacheTtl: 3600 }); } catch {}
-	const usedBefore = await readQuotaUsed(env, sess.sub, now);
+	const usedBefore = await readQuotaUsed(env, sess.qb, now, trial);
 	if (hit) {
-		const q = quotaObj(usedBefore, limit, now);
+		const q = quotaObj(usedBefore, limit, resetAt);
 		if (streaming) return ndjson([{ done: true, text: hit, quota: q, cached: true }]);
 		return json(200, { ok: true, text: hit, quota: q, cached: true });
 	}
-	if (usedBefore >= limit) {
-		const d = new Date(nextMonthStart(now));
-		const when = String(d.getUTCDate()).padStart(2, "0") + "." + String(d.getUTCMonth() + 1).padStart(2, "0") + "." + d.getUTCFullYear();
-		throw new HttpError(429, "quota_exceeded", `Bu ayki ${limit} satırlık çeviri sınırına ulaşıldı. Sınır ${when} tarihinde sıfırlanır.`);
-	}
+	if (usedBefore >= limit) throw new HttpError(429, "quota_exceeded", quotaExceededMessage(limits, sess.plan, limit, resetAt));
 	if (!env.GEMINI_API_KEY) throw new HttpError(502, "upstream_error");
 
 	const timeoutMs = intEnv(env.UPSTREAM_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 50, 30_000);
@@ -775,11 +953,11 @@ async function handleTranslate(request, env, ctx, now) {
 
 	/** Başarılı çeviriyi önbelleğe yaz + kotayı say. */
 	const commit = (/** @type {string} */ text) => {
-		const inc = incrementQuota(env, sess.sub, now);
+		const inc = incrementQuota(env, sess.qb, now, trial);
 		const tasks = [env.ALTYAZI_KV.put(ck, text, { expirationTtl: TR_CACHE_TTL_S }).catch(() => {})];
 		if (inc.flush) tasks.push(inc.flush);
 		ctx.waitUntil(Promise.all(tasks));
-		return quotaObj(inc.used, limit, now);
+		return quotaObj(inc.used, limit, resetAt);
 	};
 
 	let res;
@@ -895,6 +1073,7 @@ export function _resetState() {
 	buckets.clear();
 	quotaMem.clear();
 	noThinking.clear();
+	limitsMem = null;
 	gTokenMem = null;
 	rsaKeyMem = null;
 	hmacKeys.clear();

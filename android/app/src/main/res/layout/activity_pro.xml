@@ -1,299 +1,273 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- AltyazıTR Pro abonelik ekranı (TV, kumanda ile). Kenarlar TV güvenli alanı için 48dp / 27dp. -->
-<LinearLayout
+<!--
+    AltyazıTR abonelik ekranı (TV, kumanda ile): üç paket kartı (Standart / Pro / Premium), "Ne kadar
+    oynuyorsun?" yardımcısı, bu dönemin kotası, yasal metin ve "Aboneliği yönet". Kenarlar TV güvenli
+    alanı için 48dp / 27dp. İçerik sığmazsa kumanda odağıyla kaydırılır.
+-->
+<ScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/scrollView"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    android:fillViewport="true"
+    android:scrollbars="none"
+    android:clipToPadding="false"
     android:paddingStart="48dp"
     android:paddingEnd="48dp"
     android:paddingTop="27dp"
     android:paddingBottom="27dp"
-    android:clipChildren="false"
-    android:clipToPadding="false"
     tools:context="com.metallic.chiaki.billing.ProActivity">
 
-    <!-- Üst çubuk -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:orientation="vertical"
+        android:clipChildren="false"
+        android:clipToPadding="false">
 
-        <ImageView
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:src="@drawable/ic_altyazi_mark"
-            android:importantForAccessibility="no" />
-
+        <!-- Üst çubuk -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="16dp"
-            android:orientation="vertical">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <ImageView
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_altyazi_mark"
+                android:importantForAccessibility="no" />
 
             <LinearLayout
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:layout_weight="1"
+                android:layout_marginStart="16dp"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/pro_brand"
+                        android:textColor="@color/home_text"
+                        android:textSize="26sp"
+                        android:textStyle="bold"
+                        android:includeFontPadding="false" />
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_marginStart="8dp"
+                        android:src="@drawable/ic_pro_star"
+                        android:importantForAccessibility="no"
+                        app:tint="@color/home_accent" />
+                </LinearLayout>
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/pro_brand"
-                    android:textColor="@color/home_text"
-                    android:textSize="26sp"
-                    android:textStyle="bold"
-                    android:includeFontPadding="false" />
+                    android:layout_marginTop="4dp"
+                    android:text="@string/pro_subhead"
+                    android:textColor="@color/home_text_muted"
+                    android:textSize="15sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/statusChip"
+                style="@style/Home.Chip">
 
                 <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:layout_marginStart="8dp"
-                    android:src="@drawable/ic_pro_star"
+                    android:id="@+id/statusDotImageView"
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:src="@drawable/bg_home_dot"
                     android:importantForAccessibility="no"
-                    app:tint="@color/home_accent" />
+                    app:tint="@color/home_offline" />
+
+                <TextView
+                    android:id="@+id/statusTextView"
+                    style="@style/Home.ChipText"
+                    tools:text="@string/pro_status_inactive" />
             </LinearLayout>
+        </LinearLayout>
+
+        <!-- Ne kadar oynuyorsun? (ilgili kartı vurgular) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:clipChildren="false"
+            android:clipToPadding="false">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/pro_subhead"
-                android:textColor="@color/home_text_muted"
-                android:textSize="15sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/statusChip"
-            style="@style/Home.Chip">
-
-            <ImageView
-                android:id="@+id/statusDotImageView"
-                android:layout_width="10dp"
-                android:layout_height="10dp"
-                android:src="@drawable/bg_home_dot"
-                android:importantForAccessibility="no"
-                app:tint="@color/home_offline" />
-
-            <TextView
-                android:id="@+id/statusTextView"
-                style="@style/Home.ChipText"
-                tools:text="@string/pro_status_inactive" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="20dp"
-        android:orientation="horizontal"
-        android:clipChildren="false"
-        android:clipToPadding="false">
-
-        <!-- Avantajlar -->
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1.15"
-            android:orientation="vertical"
-            android:paddingEnd="24dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/pro_headline"
+                android:layout_marginEnd="14dp"
+                android:text="@string/pro_habit_question"
                 android:textColor="@color/home_text"
-                android:textSize="28sp"
-                android:textStyle="bold" />
+                android:textSize="17sp"
+                android:fontFamily="sans-serif-medium" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="22dp"
-                android:orientation="horizontal">
+            <TextView
+                android:id="@+id/habitFewButton"
+                style="@style/Home.Pill"
+                android:layout_height="38dp"
+                android:layout_marginEnd="10dp"
+                android:background="@drawable/bg_plan_habit"
+                android:textColor="@color/plan_habit_text"
+                android:text="@string/pro_habit_few" />
 
-                <ImageView
-                    style="@style/Home.TileIcon"
-                    android:src="@drawable/ic_pro_check" />
+            <TextView
+                android:id="@+id/habitEveningsButton"
+                style="@style/Home.Pill"
+                android:layout_height="38dp"
+                android:layout_marginEnd="10dp"
+                android:background="@drawable/bg_plan_habit"
+                android:textColor="@color/plan_habit_text"
+                android:text="@string/pro_habit_evenings" />
 
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        style="@style/Pair.HelpTitle"
-                        android:text="@string/pro_benefit_quality_title" />
-
-                    <TextView
-                        style="@style/Pair.HelpBody"
-                        android:text="@string/pro_benefit_quality_body" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:orientation="horizontal">
-
-                <ImageView
-                    style="@style/Home.TileIcon"
-                    android:src="@drawable/ic_pro_check" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        style="@style/Pair.HelpTitle"
-                        android:text="@string/pro_benefit_key_title" />
-
-                    <TextView
-                        style="@style/Pair.HelpBody"
-                        android:text="@string/pro_benefit_key_body" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:orientation="horizontal">
-
-                <ImageView
-                    style="@style/Home.TileIcon"
-                    android:src="@drawable/ic_pro_check" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        style="@style/Pair.HelpTitle"
-                        android:text="@string/pro_benefit_fast_title" />
-
-                    <TextView
-                        style="@style/Pair.HelpBody"
-                        android:text="@string/pro_benefit_fast_body" />
-                </LinearLayout>
-            </LinearLayout>
+            <TextView
+                android:id="@+id/habitDailyButton"
+                style="@style/Home.Pill"
+                android:layout_height="38dp"
+                android:background="@drawable/bg_plan_habit"
+                android:textColor="@color/plan_habit_text"
+                android:text="@string/pro_habit_daily" />
         </LinearLayout>
 
-        <!-- Fiyat ve işlemler: uzun metin sığmazsa kumandayla kaydırılır -->
-        <ScrollView
-            android:id="@+id/cardScrollView"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="@drawable/bg_home_hero"
-            android:fillViewport="true"
-            android:scrollbars="none"
+        <!-- Paket kartları (ucuzdan pahalıya) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal"
+            android:baselineAligned="false"
+            android:clipChildren="false"
             android:clipToPadding="false">
 
-            <LinearLayout
+            <include
+                android:id="@+id/standartCard"
+                layout="@layout/item_plan_card"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="16dp" />
+
+            <include
+                android:id="@+id/proCard"
+                layout="@layout/item_plan_card"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="16dp" />
+
+            <include
+                android:id="@+id/premiumCard"
+                layout="@layout/item_plan_card"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <!-- Bu dönemin kullanımı (abone iken) -->
+        <LinearLayout
+            android:id="@+id/quotaContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:id="@+id/quotaTextView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingStart="28dp"
-                android:paddingEnd="28dp"
-                android:paddingTop="22dp"
-                android:paddingBottom="22dp"
-                android:clipChildren="false"
-                android:clipToPadding="false">
+                android:textColor="@color/home_text"
+                android:textSize="15sp"
+                tools:text="Bu ay: 3.120 / 11.000 satır, yenilenme: 1 Kasım" />
 
-                <TextView
-                    android:id="@+id/priceTextView"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textColor="@color/home_accent"
-                    android:textSize="30sp"
-                    android:textStyle="bold"
-                    tools:text="₺49,99 / ay" />
+            <ProgressBar
+                android:id="@+id/quotaProgressBar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="8dp"
+                android:layout_marginTop="6dp"
+                android:max="1000"
+                android:progressTint="@color/home_accent"
+                android:progressBackgroundTint="@color/home_outline"
+                android:importantForAccessibility="no"
+                tools:progress="284" />
+        </LinearLayout>
 
-                <TextView
-                    android:id="@+id/trialTextView"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textColor="@color/home_text"
-                    android:textSize="16sp"
-                    android:visibility="gone"
-                    tools:text="7 gün ücretsiz, sonra ₺49,99 / ay"
-                    tools:visibility="visible" />
+        <TextView
+            android:id="@+id/detailTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:textColor="@color/home_text_muted"
+            android:textSize="14sp"
+            android:visibility="gone"
+            tools:text="@string/pro_renewing"
+            tools:visibility="visible" />
 
-                <TextView
-                    android:id="@+id/detailTextView"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:textColor="@color/home_text_muted"
-                    android:textSize="14sp"
-                    android:visibility="gone"
-                    tools:text="@string/pro_renewing"
-                    tools:visibility="visible" />
+        <!-- İşlemler -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:clipChildren="false"
+            android:clipToPadding="false">
 
-                <TextView
-                    android:id="@+id/quotaTextView"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:textColor="@color/home_text_muted"
-                    android:textSize="14sp"
-                    android:visibility="gone"
-                    tools:text="Bu ay 1.234 / 30.000 satır · 1 Kasım tarihinde sıfırlanır"
-                    tools:visibility="visible" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/useEngineButton"
+                style="@style/Home.PrimaryButton"
+                android:layout_width="wrap_content"
+                android:layout_height="56dp"
+                android:layout_marginEnd="12dp"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:textSize="17sp"
+                android:text="@string/pro_action_use_pro"
+                android:visibility="gone"
+                tools:visibility="visible" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/primaryButton"
-                    style="@style/Home.PrimaryButton"
-                    android:layout_width="match_parent"
-                    android:layout_marginTop="16dp"
-                    android:nextFocusDown="@+id/manageButton"
-                    tools:text="@string/pro_action_subscribe">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/manageButton"
+                style="@style/Home.SecondaryButton"
+                android:layout_width="wrap_content"
+                android:layout_marginEnd="12dp"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:text="@string/pro_action_manage" />
 
-                    <requestFocus />
-                </com.google.android.material.button.MaterialButton>
+            <TextView
+                android:id="@+id/privacyButton"
+                style="@style/Home.Pill"
+                android:textSize="14sp"
+                android:text="@string/pro_action_privacy" />
+        </LinearLayout>
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/manageButton"
-                    style="@style/Home.SecondaryButton"
-                    android:layout_width="match_parent"
-                    android:layout_marginTop="12dp"
-                    android:text="@string/pro_action_manage"
-                    android:nextFocusUp="@id/primaryButton"
-                    android:nextFocusDown="@+id/privacyButton" />
-
-                <TextView
-                    android:id="@+id/legalTextView"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:text="@string/pro_legal"
-                    android:textColor="@color/home_text_faint"
-                    android:textSize="12sp"
-                    android:lineSpacingExtra="2dp" />
-
-                <TextView
-                    android:id="@+id/privacyButton"
-                    style="@style/Home.Pill"
-                    android:layout_height="36dp"
-                    android:layout_marginTop="10dp"
-                    android:textSize="14sp"
-                    android:text="@string/pro_action_privacy"
-                    android:nextFocusUp="@id/manageButton" />
-            </LinearLayout>
-        </ScrollView>
+        <TextView
+            android:id="@+id/legalTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/pro_legal"
+            android:textColor="@color/home_text_faint"
+            android:textSize="12sp"
+            android:lineSpacingExtra="2dp" />
     </LinearLayout>
-</LinearLayout>
+</ScrollView>

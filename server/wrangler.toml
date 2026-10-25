@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# AltyazıTR Pro çeviri sunucusu — Cloudflare Worker yapılandırması.
+# AltyazıTR abonelik çeviri sunucusu — Cloudflare Worker yapılandırması.
 # Kurulum: KURULUM.md
 
 name = "altyazitr-api"
@@ -15,7 +15,10 @@ workers_dev = true
 
 [vars]
 GEMINI_MODEL = "gemini-3.5-flash-lite"
-MONTHLY_LINE_LIMIT = "30000"
+# Paket başına aylık yapay zekâ çeviri satırı sınırı (temel plan kimliği → satır). "deneme" = 3 günlük
+# ücretsiz deneme boyunca toplam. Listeyi TAM yazın: listede olmayan temel plan geçersiz sayılır.
+# Varsayılan (bu satır silinirse de aynı): standart 4.500 (~10 saat), pro 11.000 (~25 saat), premium 27.000 (~60 saat).
+PLAN_LIMITS = '{"standart":4500,"pro":11000,"premium":27000,"deneme":1500}'
 MAX_TEXT_CHARS = "600"
 
 # Önbellek, kota sayaçları, doğrulama önbelleği ve Google erişim jetonu.

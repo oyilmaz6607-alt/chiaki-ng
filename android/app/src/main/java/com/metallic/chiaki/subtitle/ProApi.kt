@@ -2,12 +2,23 @@
 
 package com.metallic.chiaki.subtitle
 
+import com.metallic.chiaki.billing.Plans
 import com.metallic.chiaki.billing.PriceText
 import com.metallic.chiaki.billing.ProProduct
 import java.util.TimeZone
 
-/** Aylık satır kotası (PRO_API.md → quota). */
+/** Satır kotası (PRO_API.md → quota): ücretli pakette aylık, denemede deneme boyunca. */
 data class ProQuota(val used: Long, val limit: Long, val resetAt: Long)
+
+/** Sunucunun bildirdiği paket (PRO_API.md v1.1 → /v1/session). */
+data class ProPlan(
+	/** "standart" | "pro" | "premium" | "deneme". */
+	val plan: String,
+	val planName: String?,
+	/** Temel plan (denemede deneme bitince geçilecek paket). */
+	val basePlan: String?,
+	val trial: Boolean
+)
 
 /**
  * Sunucunun verdiği oturum jetonu. Jeton opaktır; süresi cihaz saatine güvenmeden, alındığı andaki
@@ -40,7 +51,7 @@ data class ProSession(
 data class ProError(val code: String, val httpCode: Int = 0, val serverMessage: String? = null)
 
 /**
- * AltyazıTR Pro sunucusu (PRO_API.md v1) için istek gövdeleri ve yanıt çözümleme (ağ yok, saf mantık).
+ * AltyazıTR abonelik sunucusu (PRO_API.md v1.1) için istek gövdeleri ve yanıt çözümleme (ağ yok, saf mantık).
  */
 object ProApi
 {
@@ -73,7 +84,7 @@ object ProApi
 	const val CODE_NETWORK = "network"
 	const val CODE_BAD_RESPONSE = "bad_response"
 
-	const val MSG_NOT_CONFIGURED = "Pro hizmeti henüz hazır değil"
+	const val MSG_NOT_CONFIGURED = "Abonelik hizmeti henüz hazır değil"
 
 	/** "https://x.example/" → "https://x.example"; boş/geçersiz → null (Pro yapılandırılmamış). */
 	fun normalizeBaseUrl(raw: String?): String?
@@ -161,7 +172,7 @@ object ProApi
 
 	sealed class SessionResult
 	{
-		data class Ok(val token: String, val expiresAt: Long, val quota: ProQuota?): SessionResult()
+		data class Ok(val token: String, val expiresAt: Long, val quota: ProQuota?, val plan: ProPlan? = null): SessionResult()
 		data class Failure(val error: ProError): SessionResult()
 	}
 
@@ -176,8 +187,19 @@ object ProApi
 		val expiresAt = num(root["expiresAt"])
 		if(token == null || expiresAt == null)
 			return SessionResult.Failure(ProError(CODE_BAD_RESPONSE, httpCode))
-		return SessionResult.Ok(token, expiresAt, quota(root["quota"]))
+		return SessionResult.Ok(token, expiresAt, quota(root["quota"]), plan(root))
 	}
+
+	/** Paket alanları; "plan" yoksa veya geçersizse null (v1 sunucu). */
+	fun plan(root: Map<*, *>): ProPlan?
+	{
+		val id = (root["plan"] as? String)?.takeIf { PLAN_ID.matches(it) } ?: return null
+		val name = (root["planName"] as? String)?.trim()?.takeIf { it.isNotEmpty() }?.take(40)
+		val base = (root["basePlan"] as? String)?.takeIf { PLAN_ID.matches(it) }
+		return ProPlan(id, name, base ?: id.takeIf { it != Plans.TRIAL_ID }, root["trial"] == true)
+	}
+
+	private val PLAN_ID = Regex("^[a-z0-9-]{1,40}$")
 
 	sealed class TranslateResult
 	{
@@ -240,27 +262,27 @@ object ProApi
 		tz: TimeZone = TimeZone.getDefault()): String = when(e.code)
 	{
 		CODE_NOT_CONFIGURED -> MSG_NOT_CONFIGURED
-		CODE_NO_PURCHASE -> "AltyazıTR Pro aboneliği bulunamadı."
-		CODE_NOT_SUBSCRIBED -> "AltyazıTR Pro aboneliğiniz etkin değil. Ayarlar → AltyazıTR Pro'dan kontrol edin."
+		CODE_NO_PURCHASE -> "AltyazıTR aboneliği bulunamadı."
+		CODE_NOT_SUBSCRIBED -> "AltyazıTR aboneliğiniz etkin değil. Ayarlar → AltyazıTR Abonelik'ten kontrol edin."
 		CODE_INVALID_PURCHASE -> "Abonelik doğrulanamadı. Google Play → Abonelikler'den kontrol edin."
 		CODE_QUOTA_EXCEEDED ->
 		{
 			val reset = lastQuota?.resetAt?.takeIf { it > nowMs }
 			when
 			{
-				reset != null -> "Bu ayki Pro çeviri sınırına ulaşıldı; ${PriceText.date(reset, nowMs, tz)} tarihinde yenilenir."
+				reset != null -> "Paketinizin yapay zekâ çeviri hakkı doldu; ${PriceText.date(reset, nowMs, tz)} tarihinde yenilenir."
 				e.serverMessage != null -> e.serverMessage
-				else -> "Bu ayki Pro çeviri sınırına ulaşıldı; ay başında yenilenir."
+				else -> "Paketinizin yapay zekâ çeviri hakkı doldu; ay başında yenilenir."
 			}
 		}
 		CODE_RATE_LIMITED -> "Çok fazla istek gönderildi; biraz sonra tekrar denenecek."
-		CODE_UNAUTHORIZED -> "Pro oturumu açılamadı; tekrar denenecek."
+		CODE_UNAUTHORIZED -> "Abonelik oturumu açılamadı; tekrar denenecek."
 		CODE_BAD_REQUEST -> "Çeviri isteği geçersiz."
-		CODE_UPSTREAM_ERROR, CODE_SERVER_ERROR -> "Pro çeviri sunucusu şu an yanıt vermiyor."
-		CODE_TIMEOUT -> "Pro çeviri zaman aşımına uğradı."
-		CODE_NETWORK -> "Pro sunucusuna bağlanılamadı. İnternet bağlantısını kontrol edin."
-		CODE_BAD_RESPONSE -> "Pro sunucusundan geçersiz yanıt geldi."
-		else -> e.serverMessage ?: "Pro hatası (${e.code})"
+		CODE_UPSTREAM_ERROR, CODE_SERVER_ERROR -> "Yapay zekâ çeviri sunucusu şu an yanıt vermiyor."
+		CODE_TIMEOUT -> "Yapay zekâ çevirisi zaman aşımına uğradı."
+		CODE_NETWORK -> "Çeviri sunucusuna bağlanılamadı. İnternet bağlantısını kontrol edin."
+		CODE_BAD_RESPONSE -> "Çeviri sunucusundan geçersiz yanıt geldi."
+		else -> e.serverMessage ?: "Abonelik hatası (${e.code})"
 	}
 
 	/**

@@ -24,6 +24,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.metallic.chiaki.BuildConfig
 import com.metallic.chiaki.R
 import com.metallic.chiaki.billing.BillingRepository
+import com.metallic.chiaki.billing.PlanText
 import com.metallic.chiaki.billing.ProActivity
 import com.metallic.chiaki.billing.ProStore
 import com.metallic.chiaki.common.*
@@ -193,7 +194,7 @@ class MainActivity : AppCompatActivity()
 		}
 	}
 
-	/** Ana ekrandaki Pro rozeti: abone ise "Pro ✓". Durum Google Play'den arka planda tazelenir. */
+	/** Ana ekrandaki abonelik rozeti: abone ise paket adı ("Pro paketi"), değilse "Abone ol". Durum Google Play'den arka planda tazelenir. */
 	private fun updateProBadge()
 	{
 		renderProBadge()
@@ -202,7 +203,13 @@ class MainActivity : AppCompatActivity()
 
 	private fun renderProBadge()
 	{
-		binding.proButton.setText(if(ProStore(this).isSubscribed) R.string.home_pro_badge_active else R.string.home_pro_badge)
+		val store = ProStore(this)
+		binding.proButton.text = when
+		{
+			!store.isSubscribed -> getString(R.string.home_pro_badge)
+			// Paket sunucudan öğrenilir (abonelik ekranı veya ilk çeviri); henüz bilinmiyorsa "Abone ✓".
+			else -> PlanText.badge(store.plan?.plan) ?: getString(R.string.home_pro_badge_active)
+		}
 	}
 
 	override fun onPause()

@@ -28,6 +28,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.IntentCompat
 import com.google.mlkit.common.model.DownloadConditions
@@ -41,6 +42,7 @@ import com.metallic.chiaki.BuildConfig
 import com.metallic.chiaki.R
 import com.metallic.chiaki.billing.BillingRepository
 import com.metallic.chiaki.billing.ProStore
+import com.metallic.chiaki.billing.QuotaNotice
 import com.metallic.chiaki.common.LogManager
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.companion.CompanionServer
@@ -892,7 +894,7 @@ class CaptionService : Service()
 			mlkitMs = SystemClock.uptimeMillis() - started
 			cache.put(TranslationSettings.ENGINE_MLKIT, english, turkish)
 			if(display(gen, turkish, RefineState.Source.MLKIT, frameAt, english) && isFallback)
-				shownEngine = if(engine == TranslationSettings.ENGINE_PRO) "cihaz içi (Pro yerine)" else "cihaz içi (Gemini yerine)"
+				shownEngine = if(engine == TranslationSettings.ENGINE_PRO) "cihaz içi (abonelik yerine)" else "cihaz içi (Gemini yerine)"
 		}
 	}
 
@@ -959,6 +961,14 @@ class CaptionService : Service()
 				if(gen != refine.gen)
 					return@launch
 			}
+			// Paketin bu dönemki hakkı doldu: dönem sonuna kadar sunucuya gitmeden cihaz içi çeviri.
+			if(pro.isQuotaExhausted())
+			{
+				geminiNote = "Abonelik: bu dönemin satır hakkı doldu → cihaz içi"
+				maybeShowQuotaNotice()
+				fallbackToMlKit(gen, english, frameAt)
+				return@launch
+			}
 			val now = SystemClock.uptimeMillis()
 			if(!proBackoff.canTry(now))
 			{
@@ -996,6 +1006,8 @@ class CaptionService : Service()
 				// Sunucu aboneliği etkin görmüyorsa Google Play'deki durumu tazele (bitti/iptal olduysa motor değişir).
 				if(error?.code == ProApi.CODE_NOT_SUBSCRIBED || error?.code == ProApi.CODE_INVALID_PURCHASE)
 					BillingRepository.get(this@CaptionService).refreshPurchases()
+				if(error?.code == ProApi.CODE_QUOTA_EXCEEDED)
+					maybeShowQuotaNotice()
 				refine.dropPartial(gen)
 				fallbackToMlKit(gen, english, frameAt)
 				return@launch
@@ -1010,6 +1022,19 @@ class CaptionService : Service()
 	}
 
 	/** Gemini/Pro sonuç vermedi: ekranda hiç çeviri yoksa cihaz içi çeviri gösterilir. */
+	/**
+	 * Kota doldu: dönem başına bir kez, ne olduğunu ve (en üst pakette değilse) bir üst paketi söyleyen
+	 * Türkçe bildirim. Sonraki satırlar sessizce cihaz içi çeviriyle sürer.
+	 */
+	private fun maybeShowQuotaNotice()
+	{
+		val q = proStore.quota ?: return
+		if(!proStore.claimQuotaNotice(q.resetAt))
+			return
+		val plan = proStore.plan
+		Toast.makeText(applicationContext, QuotaNotice.message(plan?.plan, plan?.basePlan, q.resetAt), Toast.LENGTH_LONG).show()
+	}
+
 	private fun fallbackToMlKit(gen: Int, english: String, frameAt: Long)
 	{
 		if(gen != refine.gen || refine.shown != null)

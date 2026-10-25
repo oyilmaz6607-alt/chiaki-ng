@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Abonelik paket kartı (activity_pro.xml içinde üç kez: Standart / Pro / Premium). Metinler koddan. -->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_weight="1"
+    android:orientation="vertical"
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:paddingTop="14dp"
+    android:paddingBottom="16dp"
+    android:background="@drawable/bg_plan_card"
+    android:focusable="true"
+    android:clickable="true">
+
+    <TextView
+        android:id="@+id/badgeTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="22dp"
+        android:gravity="center"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:background="@drawable/bg_plan_badge"
+        android:text="@string/pro_plan_badge_recommended"
+        android:textColor="@color/home_on_accent"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif-medium"
+        android:visibility="invisible"
+        tools:visibility="visible" />
+
+    <TextView
+        android:id="@+id/nameTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textColor="@color/home_text"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:ellipsize="end"
+        tools:text="Pro" />
+
+    <TextView
+        android:id="@+id/hoursTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/home_text"
+        android:textSize="16sp"
+        android:fontFamily="sans-serif-medium"
+        tools:text="Ayda ~25 saat oyun" />
+
+    <TextView
+        android:id="@+id/linesTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/home_text_muted"
+        android:textSize="14sp"
+        tools:text="11.000 satır yapay zekâ çevirisi" />
+
+    <TextView
+        android:id="@+id/priceTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textColor="@color/home_accent"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:ellipsize="end"
+        tools:text="₺149,99 / ay" />
+
+    <TextView
+        android:id="@+id/trialTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/home_ready"
+        android:textSize="14sp"
+        android:fontFamily="sans-serif-medium"
+        android:visibility="gone"
+        tools:text="3 gün ücretsiz dene"
+        tools:visibility="visible" />
+
+    <TextView
+        android:id="@+id/actionTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textColor="@color/home_text"
+        android:textSize="15sp"
+        android:fontFamily="sans-serif-medium"
+        tools:text="Abone ol" />
+</LinearLayout>

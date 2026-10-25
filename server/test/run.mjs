@@ -25,7 +25,7 @@ const GEMINI_KEY = "AIza-test-key";
 
 function makeEnv(over = {}) {
 	return { ALTYAZI_KV: new FakeKV(), GEMINI_API_KEY: GEMINI_KEY, SESSION_SECRET: SECRET, GOOGLE_SERVICE_ACCOUNT_JSON: SA,
-		GEMINI_MODEL: "gemini-3.5-flash-lite", MONTHLY_LINE_LIMIT: "30000", MAX_TEXT_CHARS: "600", UPSTREAM_TIMEOUT_MS: "150", ...over };
+		GEMINI_MODEL: "gemini-3.5-flash-lite", MAX_TEXT_CHARS: "600", UPSTREAM_TIMEOUT_MS: "150", ...over };
 }
 function makeCtx() { const ps = []; return { waitUntil: (p) => ps.push(p), all: () => Promise.all(ps) }; }
 
@@ -97,8 +97,18 @@ globalThis.fetch = async (input, init = {}) => {
 	throw new Error("unexpected fetch " + req.url);
 };
 
-function activeSub(productId = "altyazitr_pro", state = "SUBSCRIPTION_STATE_ACTIVE", expiry = FUTURE()) {
-	return { status: 200, body: { kind: "androidpublisher#subscriptionPurchaseV2", subscriptionState: state, acknowledgementState: "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED", lineItems: [{ productId, expiryTime: expiry, autoRenewingPlan: { autoRenewEnabled: true } }] } };
+/**
+ * SubscriptionPurchaseV2 (alan adları: developers.google.com/android-publisher/api-ref/rest/v3/purchases.subscriptionsv2).
+ * Varsayılan: "pro" temel planı, ücretli (basePrice) aşama.
+ */
+function activeSub(productId = "altyazitr_abonelik", state = "SUBSCRIPTION_STATE_ACTIVE", expiry = FUTURE(),
+	{ basePlanId = "pro", offerId, offerPhase = { basePrice: {} }, linkedPurchaseToken, startTime = new Date(Date.now() - 10 * 24 * 3600e3).toISOString(), extraItems = [] } = {}) {
+	const li = { productId, expiryTime: expiry, autoRenewingPlan: { autoRenewEnabled: true }, offerDetails: { basePlanId, offerTags: [] } };
+	if (offerId !== undefined) li.offerDetails.offerId = offerId;
+	if (offerPhase !== null) li.offerPhase = offerPhase;
+	const body = { kind: "androidpublisher#subscriptionPurchaseV2", startTime, subscriptionState: state, acknowledgementState: "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED", lineItems: [...extraItems, li] };
+	if (linkedPurchaseToken) body.linkedPurchaseToken = linkedPurchaseToken;
+	return { status: 200, body };
 }
 
 // ---------------------------------------------------------------- istek yardımcıları
@@ -117,10 +127,10 @@ async function call(env, method, path, { body, headers = {}, raw } = {}) {
 	try { j = JSON.parse(text); } catch {}
 	return { status: res.status, ct: res.headers.get("content-type"), text, j, lines: text.split("\n").filter(Boolean).map((l) => JSON.parse(l)) };
 }
-const sessionBody = (purchaseToken) => ({ packageName: "com.altyazitr.oyun", productId: "altyazitr_pro", purchaseToken, appVersion: "1.0.0" });
+const sessionBody = (purchaseToken) => ({ packageName: "com.altyazitr.oyun", productId: "altyazitr_abonelik", purchaseToken, appVersion: "1.0.0" });
 
-async function newSession(env, token = "tok_" + Math.random().toString(36).slice(2) + "_abcdefgh") {
-	F.purchases[token] = activeSub();
+async function newSession(env, token = "tok_" + Math.random().toString(36).slice(2) + "_abcdefgh", opts = {}) {
+	F.purchases[token] = activeSub(undefined, undefined, undefined, opts);
 	const r = await call(env, "POST", "/v1/session", { body: sessionBody(token) });
 	assert.equal(r.status, 200, r.text);
 	return r.j.sessionToken;
@@ -140,7 +150,7 @@ const origLog = console.log;
 test("health", async () => {
 	const r = await call(makeEnv(), "GET", "/v1/health");
 	assert.equal(r.status, 200);
-	assert.deepEqual(r.j, { ok: true, version: "1" });
+	assert.deepEqual(r.j, { ok: true, version: "1.1" });
 });
 
 test("routing: preflight 405, wrong method 405, unknown 404", async () => {
@@ -163,10 +173,18 @@ test("session: active subscription → token, quota, expiresAt; JWT valid; acces
 	assert.ok(r.j.expiresAt > Date.now() + 59 * 60e3 && r.j.expiresAt <= Date.now() + 60 * 60e3);
 	assert.deepEqual(Object.keys(r.j.quota).sort(), ["limit", "resetAt", "used"]);
 	assert.equal(r.j.quota.used, 0);
-	assert.equal(r.j.quota.limit, 30000);
+	assert.equal(r.j.quota.limit, 11000);
+	assert.equal(r.j.quota.resetAt, S.nextMonthStart(Date.now()));
+	assert.equal(r.j.plan, "pro");
+	assert.equal(r.j.planName, "Pro");
+	assert.equal(r.j.basePlan, "pro");
+	assert.equal(r.j.trial, false);
 	const payload = JSON.parse(Buffer.from(r.j.sessionToken.split(".")[0], "base64url").toString());
-	assert.equal(payload.v, 1);
+	assert.equal(payload.v, 2);
+	assert.equal(payload.plan, "pro");
 	assert.equal(payload.sub, (await S.sha256Hex("tok_active_1234567")).slice(0, 32));
+	assert.equal(payload.qb, payload.sub);
+	assert.equal(payload.te, undefined);
 	assert.equal(F.oauthCalls, 1);
 	// İkinci, farklı jeton: OAuth tekrar çağrılmaz (bellek önbelleği)
 	F.purchases["tok_active_2234567"] = activeSub();
@@ -182,11 +200,11 @@ test("session: active subscription → token, quota, expiresAt; JWT valid; acces
 
 test("session: grace period accepted; expired/canceled/paused/on-hold rejected", async () => {
 	const env = makeEnv();
-	F.purchases["tok_grace_1234567"] = activeSub("altyazitr_pro", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD");
+	F.purchases["tok_grace_1234567"] = activeSub("altyazitr_abonelik", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD");
 	assert.equal((await call(env, "POST", "/v1/session", { body: sessionBody("tok_grace_1234567") })).status, 200);
 	for (const st of ["SUBSCRIPTION_STATE_EXPIRED", "SUBSCRIPTION_STATE_CANCELED", "SUBSCRIPTION_STATE_PAUSED", "SUBSCRIPTION_STATE_ON_HOLD", "SUBSCRIPTION_STATE_PENDING"]) {
 		const t = "tok_" + st.toLowerCase();
-		F.purchases[t] = activeSub("altyazitr_pro", st);
+		F.purchases[t] = activeSub("altyazitr_abonelik", st);
 		const r = await call(env, "POST", "/v1/session", { body: sessionBody(t) });
 		assert.equal(r.status, 403, st);
 		assert.equal(r.j.code, "not_subscribed");
@@ -196,7 +214,7 @@ test("session: grace period accepted; expired/canceled/paused/on-hold rejected",
 
 test("session: active state but expiryTime in past → not_subscribed", async () => {
 	const env = makeEnv();
-	F.purchases["tok_pastexp_12345"] = activeSub("altyazitr_pro", "SUBSCRIPTION_STATE_ACTIVE", PAST());
+	F.purchases["tok_pastexp_12345"] = activeSub("altyazitr_abonelik", "SUBSCRIPTION_STATE_ACTIVE", PAST());
 	const r = await call(env, "POST", "/v1/session", { body: sessionBody("tok_pastexp_12345") });
 	assert.equal(r.status, 403);
 	assert.equal(r.j.code, "not_subscribed");
@@ -224,8 +242,8 @@ test("session: verification cached in KV (10 min) keyed by sha256(token)", async
 	const env = makeEnv();
 	F.purchases["tok_cache_1234567"] = activeSub();
 	await call(env, "POST", "/v1/session", { body: sessionBody("tok_cache_1234567") });
-	const put = env.ALTYAZI_KV.puts.find((p) => p.k.startsWith("pv:v1:"));
-	assert.equal(put.k, "pv:v1:" + (await S.sha256Hex("tok_cache_1234567")));
+	const put = env.ALTYAZI_KV.puts.find((p) => p.k.startsWith("pv:v2:"));
+	assert.equal(put.k, "pv:v2:" + (await S.sha256Hex("tok_cache_1234567")));
 	assert.equal(put.o.expirationTtl, 600);
 	assert.ok(!put.k.includes("tok_cache"), "raw purchase token not stored in key");
 	const n = F.calls.length;
@@ -300,7 +318,9 @@ test("translate: auth failures → 401 (missing, garbage, tampered, wrong secret
 test("verifySession unit", async () => {
 	const sub = "a".repeat(32);
 	const t = await S.signSession(SECRET, sub, Date.now() + 1000);
-	assert.deepEqual(await S.verifySession(SECRET, t, Date.now()), { sub, exp: JSON.parse(Buffer.from(t.split(".")[0], "base64url")).exp });
+	assert.deepEqual(await S.verifySession(SECRET, t, Date.now()), { sub, exp: JSON.parse(Buffer.from(t.split(".")[0], "base64url")).exp, plan: "standart", qb: sub });
+	const t2 = await S.signSession(SECRET, sub, Date.now() + 1000, "deneme", "c".repeat(32), 123);
+	assert.deepEqual({ ...(await S.verifySession(SECRET, t2, Date.now())), exp: 0 }, { sub, exp: 0, plan: "deneme", qb: "c".repeat(32), te: 123 });
 	assert.equal(await S.verifySession(SECRET, t + ".x", Date.now()), null);
 	assert.equal(await S.verifySession(SECRET, t, Date.now() + 2000), null);
 });
@@ -316,7 +336,7 @@ test("translate non-stream: request shape, cleaned output, quota counted", async
 	assert.equal(r.j.text, "Merhaba, dostum.");
 	assert.equal(r.j.cached, false);
 	assert.equal(r.j.quota.used, 1);
-	assert.equal(r.j.quota.limit, 30000);
+	assert.equal(r.j.quota.limit, 11000);
 	assert.equal(r.j.quota.resetAt, S.nextMonthStart(Date.now()));
 	assert.ok(seen.url.pathname.endsWith("/models/gemini-3.5-flash-lite:generateContent"));
 	assert.deepEqual(seen.body.generationConfig, { maxOutputTokens: 200, candidateCount: 1, thinkingConfig: { thinkingLevel: "minimal" } });
@@ -477,7 +497,7 @@ test("thinkingConfig mapping", () => {
 });
 
 test("translate: quota exhaustion → 429 with reset message; cached still served", async () => {
-	const env = makeEnv({ MONTHLY_LINE_LIMIT: "2" });
+	const env = makeEnv({ PLAN_LIMITS: '{"standart":1,"pro":2,"premium":3,"deneme":1}' });
 	const tok = await newSession(env);
 	assert.equal((await tr(env, tok, { text: "One" })).status, 200);
 	// KV yazımları ~1,5 sn'de bir; bellek sayacı yine de doğru sayar
@@ -485,7 +505,7 @@ test("translate: quota exhaustion → 429 with reset message; cached still serve
 	const r = await tr(env, tok, { text: "Three" });
 	assert.equal(r.status, 429);
 	assert.equal(r.j.code, "quota_exceeded");
-	assert.match(r.j.message, /sıfırlanır/);
+	assert.match(r.j.message, /^Pro paketinin bu ayki 2 satırlık çeviri hakkı doldu\. Hak \d\d\.\d\d\.\d{4} tarihinde yenilenir\. Daha fazlası için Premium paketine geçebilirsiniz\.$/);
 	const c = await tr(env, tok, { text: "One" });
 	assert.equal(c.status, 200);
 	assert.equal(c.j.cached, true);
@@ -567,6 +587,198 @@ test("helpers: b64url roundtrip, month math", () => {
 	assert.equal(S.b64urlDecode("a+b"), null);
 	assert.equal(S.monthKey(Date.UTC(2026, 11, 31, 23)), "2026-12");
 	assert.equal(S.nextMonthStart(Date.UTC(2026, 11, 31, 23)), Date.UTC(2027, 0, 1));
+});
+
+// ---------------------------------------------------------------- paketler (v1.1)
+
+test("plans: per-plan caps and names in /v1/session (defaults)", async () => {
+	const env = makeEnv();
+	for (const [plan, limit, name] of [["standart", 4500, "Standart"], ["pro", 11000, "Pro"], ["premium", 27000, "Premium"]]) {
+		const t = "tok_plan_" + plan + "_123456";
+		F.purchases[t] = activeSub(undefined, undefined, undefined, { basePlanId: plan });
+		const r = await call(env, "POST", "/v1/session", { body: sessionBody(t) });
+		assert.equal(r.status, 200, r.text);
+		assert.equal(r.j.plan, plan);
+		assert.equal(r.j.planName, name);
+		assert.equal(r.j.basePlan, plan);
+		assert.equal(r.j.basePlanName, name);
+		assert.equal(r.j.trial, false);
+		assert.equal(r.j.quota.limit, limit);
+		const payload = JSON.parse(Buffer.from(r.j.sessionToken.split(".")[0], "base64url").toString());
+		assert.equal(payload.plan, plan);
+	}
+});
+
+test("plans: server enforces the session plan's cap (standart vs premium)", async () => {
+	const env = makeEnv({ PLAN_LIMITS: '{"standart":1,"pro":2,"premium":3,"deneme":1}' });
+	const std = await newSession(env, "tok_std_cap_1234567", { basePlanId: "standart" });
+	assert.equal((await tr(env, std, { text: "Line one" })).j.quota.limit, 1);
+	const r = await tr(env, std, { text: "Line two" });
+	assert.equal(r.status, 429);
+	assert.equal(r.j.code, "quota_exceeded");
+	assert.match(r.j.message, /^Standart paketinin .* Daha fazlası için Pro paketine geçebilirsiniz\.$/);
+	const prem = await newSession(env, "tok_prem_cap_123456", { basePlanId: "premium" });
+	for (const t of ["P1", "P2", "P3"]) assert.equal((await tr(env, prem, { text: "Premium " + t })).status, 200);
+	const last = await tr(env, prem, { text: "Premium P4" });
+	assert.equal(last.status, 429);
+	assert.ok(!last.j.message.includes("geçebilirsiniz"), "no upsell on top plan");
+});
+
+test("plans: PLAN_LIMITS override, invalid JSON falls back to defaults", () => {
+	assert.deepEqual(S.planLimits({}), { standart: 4500, pro: 11000, premium: 27000, deneme: 1500 });
+	assert.deepEqual(S.planLimits({ PLAN_LIMITS: '{"standart":100,"pro":200}' }), { standart: 100, pro: 200, deneme: 1500 });
+	for (const bad of ["{oops", "[1,2]", '{"pro":-1}', '{"pro":"9"}', '{"Pro X":5}', '{"deneme":5}', "null"])
+		assert.deepEqual(S.planLimits({ PLAN_LIMITS: bad }), S.DEFAULT_PLAN_LIMITS, bad);
+	const L = S.DEFAULT_PLAN_LIMITS;
+	assert.equal(S.nextPlan(L, "standart"), "pro");
+	assert.equal(S.nextPlan(L, "pro"), "premium");
+	assert.equal(S.nextPlan(L, "premium"), null);
+	assert.equal(S.nextPlan(L, "deneme"), null);
+	assert.equal(S.planName("yillik-pro"), "Yillik-pro");
+	assert.equal(S.fmtCount(27000), "27.000");
+	assert.equal(S.fmtCount(1234567), "1.234.567");
+	assert.equal(S.fmtCount(450), "450");
+});
+
+test("plans: unknown / missing base plan → invalid_purchase", async () => {
+	const env = makeEnv();
+	F.purchases["tok_unknown_plan_1"] = activeSub(undefined, undefined, undefined, { basePlanId: "aylik" });
+	let r = await call(env, "POST", "/v1/session", { body: sessionBody("tok_unknown_plan_1") });
+	assert.equal(r.status, 400);
+	assert.equal(r.j.code, "invalid_purchase");
+	F.purchases["tok_deneme_plan_1"] = activeSub(undefined, undefined, undefined, { basePlanId: "deneme" });
+	r = await call(env, "POST", "/v1/session", { body: sessionBody("tok_deneme_plan_1") });
+	assert.equal(r.j.code, "invalid_purchase", "deneme is not a base plan");
+	const noOffer = activeSub();
+	delete noOffer.body.lineItems[0].offerDetails;
+	F.purchases["tok_no_offer_det_1"] = noOffer;
+	r = await call(env, "POST", "/v1/session", { body: sessionBody("tok_no_offer_det_1") });
+	assert.equal(r.j.code, "invalid_purchase");
+	// Plan sonradan PLAN_LIMITS'ten kaldırılırsa açık oturum 401 alır (yeniden oturum → invalid_purchase).
+	const tok = await newSession(env, "tok_removed_plan_12", { basePlanId: "premium" });
+	const env2 = { ...env, PLAN_LIMITS: '{"standart":4500,"pro":11000}' };
+	assert.equal((await tr(env2, tok, { text: "Hello" })).status, 401);
+});
+
+test("trial: offerPhase.freeTrial → plan deneme, trial cap, separate trial quota key, resetAt = trial end", async () => {
+	const env = makeEnv({ PLAN_LIMITS: '{"standart":4500,"pro":11000,"premium":27000,"deneme":2}' });
+	const trialEnd = new Date(Date.now() + 2 * 24 * 3600e3).toISOString();
+	F.purchases["tok_trial_phase_12"] = activeSub(undefined, undefined, trialEnd,
+		{ basePlanId: "premium", offerId: "deneme-3gun", offerPhase: { freeTrial: {} }, startTime: new Date(Date.now() - 24 * 3600e3).toISOString() });
+	const r = await call(env, "POST", "/v1/session", { body: sessionBody("tok_trial_phase_12") });
+	assert.equal(r.status, 200, r.text);
+	assert.equal(r.j.plan, "deneme");
+	assert.equal(r.j.planName, "Deneme");
+	assert.equal(r.j.basePlan, "premium");
+	assert.equal(r.j.trial, true);
+	assert.equal(r.j.quota.limit, 2);
+	assert.equal(r.j.quota.resetAt, Date.parse(trialEnd));
+	const payload = JSON.parse(Buffer.from(r.j.sessionToken.split(".")[0], "base64url").toString());
+	assert.equal(payload.plan, "deneme");
+	assert.equal(payload.te, Date.parse(trialEnd));
+	const tok = r.j.sessionToken;
+	const a = await tr(env, tok, { text: "Trial line A" });
+	assert.equal(a.j.quota.resetAt, Date.parse(trialEnd));
+	await tr(env, tok, { text: "Trial line B" });
+	const c = await tr(env, tok, { text: "Trial line C" });
+	assert.equal(c.status, 429);
+	assert.match(c.j.message, /^Ücretsiz denemenin 2 satırlık/);
+	const qk = env.ALTYAZI_KV.puts.find((p) => p.k.startsWith("q:"));
+	assert.match(qk.k, /^q:[0-9a-f]{32}:trial$/);
+	assert.equal(qk.o.expirationTtl, 30 * 24 * 3600);
+	// Aynı abone deneme bitip ücretli aşamaya geçince aylık kova sıfırdan başlar.
+	S._resetState();
+	env.ALTYAZI_KV.m.forEach((v, k) => { if (k.startsWith("pv:")) env.ALTYAZI_KV.m.delete(k); });
+	F.purchases["tok_trial_phase_12"] = activeSub(undefined, undefined, FUTURE(), { basePlanId: "premium", offerId: "deneme-3gun", offerPhase: { basePrice: {} } });
+	const paid = await call(env, "POST", "/v1/session", { body: sessionBody("tok_trial_phase_12") });
+	assert.equal(paid.j.plan, "premium");
+	assert.equal(paid.j.quota.used, 0);
+	assert.equal(paid.j.quota.limit, 27000);
+});
+
+test("trial: fallback detection without offerPhase (offerId deneme-3gun + startTime < 3 days)", () => {
+	const now = Date.now();
+	const mk = (o) => activeSub(undefined, undefined, undefined, { offerPhase: null, ...o }).body;
+	assert.equal(S.evaluateSubscription(mk({ offerId: "deneme-3gun", startTime: new Date(now - 24 * 3600e3).toISOString() }), now).trial, true);
+	assert.equal(S.evaluateSubscription(mk({ offerId: "deneme-3gun", startTime: new Date(now - 4 * 24 * 3600e3).toISOString() }), now).trial, false);
+	assert.equal(S.evaluateSubscription(mk({ offerId: "baska-teklif", startTime: new Date(now - 3600e3).toISOString() }), now).trial, false);
+	assert.equal(S.evaluateSubscription(mk({ offerId: "deneme-3gun", startTime: "garbage" }), now).trial, false);
+	// offerPhase varsa o belirleyicidir.
+	const paid = activeSub(undefined, undefined, undefined, { offerId: "deneme-3gun", offerPhase: { basePrice: {} }, startTime: new Date(now - 3600e3).toISOString() }).body;
+	assert.equal(S.evaluateSubscription(paid, now).trial, false);
+	const intro = activeSub(undefined, undefined, undefined, { offerPhase: { introductoryPrice: {} } }).body;
+	assert.equal(S.evaluateSubscription(intro, now).trial, false);
+});
+
+test("evaluateSubscription: latest-expiry line item decides plan (deferred downgrade keeps current plan)", () => {
+	const now = Date.now();
+	const soon = new Date(now + 5 * 24 * 3600e3).toISOString();
+	const later = new Date(now + 25 * 24 * 3600e3).toISOString();
+	const body = activeSub(undefined, undefined, later, {
+		basePlanId: "premium",
+		extraItems: [
+			{ productId: "altyazitr_abonelik", expiryTime: soon, offerDetails: { basePlanId: "standart" }, offerPhase: { basePrice: {} } },
+			{ productId: "altyazitr_abonelik", expiryTime: new Date(now - 1000).toISOString(), offerDetails: { basePlanId: "pro" } },
+			{ productId: "other", expiryTime: new Date(now + 90 * 24 * 3600e3).toISOString(), offerDetails: { basePlanId: "x" } },
+		],
+	}).body;
+	const ev = S.evaluateSubscription(body, now);
+	assert.equal(ev.active, true);
+	assert.equal(ev.basePlanId, "premium");
+	assert.equal(ev.expiryMs, Date.parse(later));
+	assert.equal(ev.linkedPurchaseToken, null);
+});
+
+test("upgrade: linkedPurchaseToken keeps the same monthly quota bucket (chain resolves to oldest)", async () => {
+	const env = makeEnv();
+	const t0 = "tok_chain_zero_1234567";
+	const tok0 = await newSession(env, t0, { basePlanId: "standart" });
+	assert.equal((await tr(env, tok0, { text: "Chain line one" })).j.quota.used, 1);
+	const h0 = (await S.sha256Hex(t0)).slice(0, 32);
+	// Yükseltme: Play yeni jeton verir, eskisini linkedPurchaseToken ile bildirir.
+	const t1 = "tok_chain_one_12345678";
+	F.purchases[t1] = activeSub(undefined, undefined, undefined, { basePlanId: "pro", linkedPurchaseToken: t0 });
+	const r1 = await call(env, "POST", "/v1/session", { body: sessionBody(t1) });
+	assert.equal(r1.status, 200, r1.text);
+	assert.equal(r1.j.plan, "pro");
+	assert.equal(r1.j.quota.used, 1, "usage carried within the month");
+	assert.equal(r1.j.quota.limit, 11000);
+	const p1 = JSON.parse(Buffer.from(r1.j.sessionToken.split(".")[0], "base64url").toString());
+	assert.equal(p1.sub, (await S.sha256Hex(t1)).slice(0, 32));
+	assert.equal(p1.qb, h0);
+	assert.equal((await tr(env, r1.j.sessionToken, { text: "Chain line two" })).j.quota.used, 2);
+	// İkinci değişiklik: t2 → t1 → t0; kova yine t0.
+	const t2 = "tok_chain_two_12345678";
+	F.purchases[t2] = activeSub(undefined, undefined, undefined, { basePlanId: "premium", linkedPurchaseToken: t1 });
+	const r2 = await call(env, "POST", "/v1/session", { body: sessionBody(t2) });
+	const p2 = JSON.parse(Buffer.from(r2.j.sessionToken.split(".")[0], "base64url").toString());
+	assert.equal(p2.qb, h0);
+	assert.equal(r2.j.quota.used, 2);
+	const lk = env.ALTYAZI_KV.puts.filter((p) => p.k.startsWith("lk:"));
+	assert.equal(lk.length, 2);
+	assert.ok(lk.every((p) => p.v === h0 && p.o.expirationTtl === 400 * 24 * 3600));
+	assert.ok(!lk.some((p) => p.k.includes("tok_")), "raw tokens never stored");
+	// Bağlantısız (bilinmeyen eski jeton): kova eski jetonun özeti.
+	const t3 = "tok_chain_three_123456";
+	F.purchases[t3] = activeSub(undefined, undefined, undefined, { linkedPurchaseToken: "tok_never_seen_123456" });
+	const r3 = await call(env, "POST", "/v1/session", { body: sessionBody(t3) });
+	const p3 = JSON.parse(Buffer.from(r3.j.sessionToken.split(".")[0], "base64url").toString());
+	assert.equal(p3.qb, (await S.sha256Hex("tok_never_seen_123456")).slice(0, 32));
+});
+
+test("session token: plan is signed (tampering → 401), v1 tokens rejected", async () => {
+	const env = makeEnv();
+	const tok = await newSession(env, "tok_tamper_plan_123", { basePlanId: "standart" });
+	const [p, sig] = tok.split(".");
+	const payload = JSON.parse(Buffer.from(p, "base64url").toString());
+	const forged = Buffer.from(JSON.stringify({ ...payload, plan: "premium" })).toString("base64url") + "." + sig;
+	assert.equal((await tr(env, forged, { text: "Hello" })).status, 401);
+	// Eski (v1) biçim: doğru imzalı olsa da reddedilir.
+	const v1p = Buffer.from(JSON.stringify({ sub: payload.sub, exp: Date.now() + 60e3, v: 1 })).toString("base64url");
+	const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+	const v1 = v1p + "." + S.b64urlEncode(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(v1p)));
+	assert.equal(await S.verifySession(SECRET, v1, Date.now()), null);
+	assert.equal((await tr(env, v1, { text: "Hello" })).j.code, "unauthorized");
 });
 
 // ---------------------------------------------------------------- çalıştır

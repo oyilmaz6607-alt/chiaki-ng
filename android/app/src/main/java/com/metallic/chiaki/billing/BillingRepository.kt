@@ -26,7 +26,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * AltyazıTR Pro aboneliği için Google Play Faturalandırma (Billing Library 8).
+ * AltyazıTR aboneliği için Google Play Faturalandırma (Billing Library 8, Kotlin uzantısız Java API).
+ * Tek ürün ([ProProduct.PRODUCT_ID]) ve paket başına bir temel plan ([Plans]); her paket için uygunsa
+ * 3 günlük deneme teklifi, değilse temel plan teklifi seçilir. Abone iken başka pakete geçiş
+ * SubscriptionUpdateParams ile yapılır (yükseltme: WITH_TIME_PRORATION, düşürme: DEFERRED).
  *
  * Uygulama ömrü boyunca tek örnek ([get]); tüm durum değişiklikleri ana iş parçacığında yapılır.
  * Bağlantı koparsa kütüphane kendisi yeniden bağlanır (enableAutoServiceReconnection); ilk kurulum
@@ -56,11 +59,18 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 		data class NotSubscribed(
 			/** Satın alma için gerekli; ürün henüz/hiç bulunamadıysa null. */
 			val productDetails: ProductDetails?,
-			val offer: OfferChoice?,
-			/** Ödeme onay bekliyor (Pro henüz açılmaz). */
+			/** Paketler sırayla (Standart, Pro, Premium) ve her birinin seçilen teklifi. */
+			val plans: List<PlanOffer>,
+			/** Ödeme onay bekliyor (abonelik henüz başlamaz). */
 			val pending: Boolean = false
 		): State()
-		data class Subscribed(val purchaseToken: String, val autoRenewing: Boolean): State()
+		data class Subscribed(
+			val purchaseToken: String,
+			val autoRenewing: Boolean,
+			/** Paket değiştirmek için (fiyatlar, teklifler). */
+			val productDetails: ProductDetails?,
+			val plans: List<PlanOffer>
+		): State()
 		data class Error(val message: String): State()
 	}
 
@@ -79,8 +89,10 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 	private var connecting = false
 	private var retryAttempt = 0
 	private var productDetails: ProductDetails? = null
-	private var offer: OfferChoice? = null
+	private var plans: List<PlanOffer> = OfferSelector.selectPlans(emptyList())
 	private var status: ProStatus? = null
+	/** Başlatılan paket değişikliğinin türü: sonuç gelince kısa bilgi verilir. */
+	private var pendingChange: PlanChange? = null
 	private val retryRunnable = Runnable { start() }
 
 	/** Bağlanır (gerekirse) ve ürün + satın alma bilgisini yeniler. Her yerden çağrılabilir. */
@@ -208,7 +220,8 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 				if(product == null)
 					Log.w(TAG, "Ürün bulunamadı: ${ProProduct.PRODUCT_ID} (Play Console'da etkin mi?)")
 				productDetails = product
-				offer = product?.let { OfferSelector.select(offersOf(it)) }
+				plans = OfferSelector.selectPlans(product?.let { offersOf(it) }.orEmpty())
+				plans.filter { it.choice == null }.forEach { Log.w(TAG, "Temel plan bulunamadı: ${it.spec.id} (Play Console'da etkin mi?)") }
 				publish()
 			}
 		}
@@ -250,12 +263,23 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 		}
 	}
 
-	/** Satın alma ekranını açar. false = başlatılamadı (sebebi [messages] ile bildirilir). */
-	fun launchPurchase(activity: Activity): Boolean
+	/**
+	 * [planId] paketi için Google Play satın alma ekranını açar. Abone iken başka pakete geçişi başlatır
+	 * (eski satın alma jetonu + değiştirme modu). false = başlatılamadı (sebebi [messages] ile bildirilir).
+	 * [currentPlan] sunucunun bildirdiği temel plan (Purchase nesnesinde temel plan yoktur); bilinmiyorsa null.
+	 */
+	fun launchPurchase(activity: Activity, planId: String, currentPlan: String?): Boolean
 	{
 		val c = client
 		val product = productDetails
-		val choice = offer
+		val choice = plans.firstOrNull { it.spec.id == planId }?.choice
+		val subscribed = status as? ProStatus.Subscribed
+		val change = PlanChanges.of(subscribed != null, currentPlan, planId)
+		if(change == PlanChange.SAME)
+		{
+			_messages.tryEmit(BillingLogic.MSG_SAME_PLAN)
+			return false
+		}
 		if(c == null || !c.isReady || product == null || choice == null)
 		{
 			val st = _state.value
@@ -268,14 +292,30 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 			start()
 			return false
 		}
-		val flowParams = BillingFlowParams.newBuilder()
+		val builder = BillingFlowParams.newBuilder()
 			.setProductDetailsParamsList(listOf(
 				BillingFlowParams.ProductDetailsParams.newBuilder()
 					.setProductDetails(product)
 					.setOfferToken(choice.offer.offerToken)
 					.build()
 			))
-			.build()
+		if(subscribed != null)
+		{
+			// Aynı üründe temel plan değişikliği: eski jeton + değiştirme modu.
+			// (8.0.0'da setSubscriptionReplacementMode; sonraki sürümlerde ProductDetailsParams.setSubscriptionProductReplacementParams'a taşındı.)
+			val mode = when(change)
+			{
+				PlanChange.DOWNGRADE -> BillingFlowParams.SubscriptionUpdateParams.ReplacementMode.DEFERRED
+				else -> BillingFlowParams.SubscriptionUpdateParams.ReplacementMode.WITH_TIME_PRORATION
+			}
+			builder.setSubscriptionUpdateParams(
+				BillingFlowParams.SubscriptionUpdateParams.newBuilder()
+					.setOldPurchaseToken(subscribed.purchaseToken)
+					.setSubscriptionReplacementMode(mode)
+					.build()
+			)
+		}
+		val flowParams = builder.build()
 		val result = try
 		{
 			c.launchBillingFlow(activity, flowParams)
@@ -288,7 +328,10 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 		}
 		val code = codeOf(result)
 		if(code == BillingCode.OK)
+		{
+			pendingChange = change
 			return true
+		}
 		Log.w(TAG, "launchBillingFlow: ${result.responseCode} ${result.debugMessage}")
 		handleUpdate(BillingLogic.onPurchasesUpdated(code, null), emptyList())
 		return false
@@ -310,13 +353,29 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 				handlePurchases(BillingCode.OK, purchases)
 				if(update.status == ProStatus.Pending)
 					_messages.tryEmit(BillingLogic.MSG_PENDING)
+				else if(update.status is ProStatus.Subscribed)
+					when(pendingChange)
+					{
+						PlanChange.UPGRADE, PlanChange.UNKNOWN -> _messages.tryEmit(BillingLogic.MSG_UPGRADED)
+						PlanChange.DOWNGRADE -> _messages.tryEmit(BillingLogic.MSG_DOWNGRADE_DEFERRED)
+						else -> {}
+					}
+				pendingChange = null
 			}
-			is PurchaseUpdate.Canceled -> _messages.tryEmit(update.message)
+			is PurchaseUpdate.Canceled ->
+			{
+				pendingChange = null
+				_messages.tryEmit(update.message)
+			}
 			PurchaseUpdate.Requery ->
 			{
 				queryPurchases()
 			}
-			is PurchaseUpdate.Failed -> _messages.tryEmit(update.message)
+			is PurchaseUpdate.Failed ->
+			{
+				pendingChange = null
+				_messages.tryEmit(update.message)
+			}
 		}
 	}
 
@@ -344,9 +403,9 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 		_state.value = when(val s = status)
 		{
 			null -> State.Loading
-			is ProStatus.Subscribed -> State.Subscribed(s.purchaseToken, s.autoRenewing)
-			ProStatus.Pending -> State.NotSubscribed(productDetails, offer, pending = true)
-			ProStatus.NotSubscribed -> State.NotSubscribed(productDetails, offer)
+			is ProStatus.Subscribed -> State.Subscribed(s.purchaseToken, s.autoRenewing, productDetails, plans)
+			ProStatus.Pending -> State.NotSubscribed(productDetails, plans, pending = true)
+			ProStatus.NotSubscribed -> State.NotSubscribed(productDetails, plans)
 			is ProStatus.Unavailable -> State.NotConfigured(s.message)
 			is ProStatus.Failed -> State.Error(s.message)
 		}

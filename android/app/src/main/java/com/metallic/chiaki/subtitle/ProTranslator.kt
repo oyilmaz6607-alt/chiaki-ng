@@ -8,6 +8,7 @@ import android.os.Looper
 import android.os.SystemClock
 import com.metallic.chiaki.BuildConfig
 import com.metallic.chiaki.billing.ProStore
+import com.metallic.chiaki.billing.QuotaNotice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -22,7 +23,7 @@ import java.net.URL
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * AltyazıTR Pro istemcisi (PRO_API.md v1): abonelik jetonuyla oturum açar, altyazıyı sunucuya gönderir ve
+ * AltyazıTR abonelik istemcisi (PRO_API.md v1.1): abonelik jetonuyla oturum açar, altyazıyı sunucuya gönderir ve
  * Türkçeyi NDJSON akışı olarak okur. Akış sürerken kısmi metin ana iş parçacığında [translate]'in
  * `onPartial` geri çağrısına verilir (en sık ~80 ms'de bir veya noktalamada), sonunda tam metin döner.
  *
@@ -42,7 +43,7 @@ class ProTranslator private constructor(context: Context)
 				instance ?: ProTranslator(context.applicationContext).also { instance = it }
 			}
 
-		/** BuildConfig'te sunucu adresi var mı? Yoksa Pro "henüz hazır değil". */
+		/** BuildConfig'te sunucu adresi var mı? Yoksa abonelik "henüz hazır değil". */
 		val isConfigured: Boolean get() = ProApi.normalizeBaseUrl(BuildConfig.PRO_API_BASE_URL) != null
 	}
 
@@ -79,14 +80,27 @@ class ProTranslator private constructor(context: Context)
 	}
 
 	/**
-	 * Altyazıyı Pro ile çevirir. Ana iş parçacığından çağrılabilir (ağ işi Dispatchers.IO'da).
+	 * Paketin bu dönemki satır hakkı dolu mu (sunucunun son bildirdiği kotaya göre)? Doluysa dönem sonuna
+	 * ([ProQuota.resetAt]) kadar sunucuya hiç gidilmez; çağıran cihaz içi çeviriye döner.
+	 * Paket değişince (yeni jeton) ProStore kotayı sildiği için kendiliğinden açılır.
+	 */
+	fun isQuotaExhausted(nowMs: Long = System.currentTimeMillis()): Boolean
+	{
+		val q = store.quota ?: return false
+		return QuotaNotice.isExhausted(q.used, q.limit, q.resetAt, nowMs)
+	}
+
+	/**
+	 * Altyazıyı abonelik (yapay zekâ) çevirisiyle çevirir. Ana iş parçacığından çağrılabilir (ağ işi Dispatchers.IO'da).
 	 * [onPartial] ana iş parçacığında, son metin dönmeden önce çağrılır.
-	 * Hata, zaman aşımı veya abonelik sorununda [ProException] fırlatır.
+	 * Hata, zaman aşımı, kota dolması veya abonelik sorununda [ProException] fırlatır.
 	 */
 	suspend fun translate(english: String, context: List<SubtitlePair>, onPartial: ((String) -> Unit)? = null): String
 	{
 		val base = baseUrl ?: fail(ProApi.CODE_NOT_CONFIGURED)
 		val purchaseToken = store.purchaseToken ?: fail(ProApi.CODE_NO_PURCHASE)
+		if(isQuotaExhausted())
+			fail(ProApi.CODE_QUOTA_EXCEEDED, 429)
 		val call = Call()
 		return coroutineScope {
 			// Bekçi: toplam süre dolunca (veya istek iptal edilince) açık bağlantıyı kapatır.
@@ -115,6 +129,29 @@ class ProTranslator private constructor(context: Context)
 	}
 
 	private fun translateBlocking(base: String, purchaseToken: String, english: String, context: List<SubtitlePair>,
+		onPartial: ((String) -> Unit)?, call: Call): String
+	{
+		return try
+		{
+			translateWithSession(base, purchaseToken, english, context, onPartial, call)
+		}
+		catch(e: ProException)
+		{
+			if(e.error.code == ProApi.CODE_QUOTA_EXCEEDED)
+				markQuotaExhausted()
+			throw e
+		}
+	}
+
+	/** Sunucu "hak doldu" dedi: kayıtlı kotayı dolu olarak işaretle (dönem sonuna kadar istek atılmaz). */
+	private fun markQuotaExhausted()
+	{
+		val q = store.quota ?: lastQuota ?: return
+		if(q.used < q.limit)
+			rememberQuota(q.copy(used = q.limit))
+	}
+
+	private fun translateWithSession(base: String, purchaseToken: String, english: String, context: List<SubtitlePair>,
 		onPartial: ((String) -> Unit)?, call: Call): String
 	{
 		val first = obtainSession(base, purchaseToken, call, force = false)
@@ -157,6 +194,7 @@ class ProTranslator private constructor(context: Context)
 					sessionOwner = purchaseToken
 				}
 				r.quota?.let { rememberQuota(it) }
+				r.plan?.let { store.savePlan(it) }
 				s
 			}
 			is ProApi.SessionResult.Failure ->
@@ -320,14 +358,15 @@ class ProTranslator private constructor(context: Context)
 	}
 
 	/**
-	 * Abonelik ekranı için: oturumu (gerekirse) yeniler ve kotayı döndürür. Daha uzun süreler; engelleyici,
+	 * Abonelik ekranı için: yeni oturum açar (paket ve kota güncel olsun; paket değişikliği, deneme bitişi)
+	 * ve kotayı döndürür. Paket [ProStore.plan]'a yazılır. Daha uzun süreler; engelleyici,
 	 * Dispatchers.IO'da çağrılmalı. Hata durumunda [ProException].
 	 */
 	fun refreshSessionBlocking(): ProQuota?
 	{
 		val base = baseUrl ?: fail(ProApi.CODE_NOT_CONFIGURED)
 		val purchaseToken = store.purchaseToken ?: fail(ProApi.CODE_NO_PURCHASE)
-		val s = obtainSession(base, purchaseToken, null, force = false, connectTimeoutMs = 5000, readTimeoutMs = 8000)
+		val s = obtainSession(base, purchaseToken, null, force = true, connectTimeoutMs = 5000, readTimeoutMs = 8000)
 		return s.quota ?: lastQuota
 	}
 

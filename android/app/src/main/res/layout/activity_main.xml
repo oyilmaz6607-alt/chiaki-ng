@@ -60,7 +60,7 @@
                 android:textSize="15sp" />
         </LinearLayout>
 
-        <!-- AltyazıTR Pro rozeti: abonelik ekranını açar -->
+        <!-- Abonelik rozeti: paket adı veya "Abone ol"; abonelik ekranını açar -->
         <TextView
             android:id="@+id/proButton"
             style="@style/Home.Pill"

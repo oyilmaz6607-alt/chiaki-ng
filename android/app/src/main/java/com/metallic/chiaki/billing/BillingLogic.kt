@@ -6,18 +6,82 @@ import java.util.Calendar
 import java.util.TimeZone
 
 /**
- * AltyazıTR Pro aboneliğinin Android'den bağımsız mantığı: teklif seçimi, fiyat/süre metinleri,
+ * AltyazıTR aboneliğinin (Standart / Pro / Premium paketleri + 3 gün ücretsiz deneme) Android'den bağımsız
+ * mantığı: paket bilgileri, paket başına teklif seçimi, yükseltme/düşürme kararı, fiyat/süre/kota metinleri,
  * satın alma durumunun özeti ve Google Play yanıt kodlarının Türkçe karşılıkları.
  * Billing Library türleri BillingRepository'de bu sade modellere çevrilir (birim testleri için).
  */
 object ProProduct
 {
-	/** PRO_API.md ile aynı olmalı. */
+	/** PRO_API.md (v1.1) ile aynı olmalı. */
 	const val PACKAGE_NAME = "com.altyazitr.oyun"
-	const val PRODUCT_ID = "altyazitr_pro"
-	const val BASE_PLAN_ID = "aylik"
+	/** Tek abonelik ürünü; paketler bunun temel planlarıdır ([Plans]). */
+	const val PRODUCT_ID = "altyazitr_abonelik"
+	/** Her temel planda aynı kimlikli 3 günlük ücretsiz deneme teklifi (yalnızca yeni müşteriler). */
+	const val TRIAL_OFFER_ID = "deneme-3gun"
 	const val MANAGE_URL = "https://play.google.com/store/account/subscriptions?sku=$PRODUCT_ID&package=$PACKAGE_NAME"
 	const val PRIVACY_URL = "https://github.com/oyilmaz6607-alt/chiaki-ng/blob/main/store/GIZLILIK.md"
+}
+
+/**
+ * Bir abonelik paketi = Play Console'daki bir temel plan.
+ * [monthlyLines] yalnızca gösterim içindir; asıl sınırı sunucu uygular (wrangler.toml → PLAN_LIMITS).
+ */
+data class PlanSpec(
+	/** Play temel plan kimliği (sunucunun "plan" değeri). */
+	val id: String,
+	val name: String,
+	/** Kullanıcıya gösterilen yaklaşık aylık oyun saati. */
+	val hoursPerMonth: Int,
+	val monthlyLines: Long,
+	val recommended: Boolean = false
+)
+
+/** "Ne kadar oynuyorsun?" seçenekleri (paket önerisi). */
+enum class PlayHabit { FEW_HOURS_WEEKLY, MOST_EVENINGS, LONG_DAILY }
+
+/**
+ * Paketlerin uygulamadaki TEK yapılandırma yeri. Sayılar sunucudaki PLAN_LIMITS ile aynı tutulmalı;
+ * fiyatlar burada değil Play Console'dadır (ekranda Play'in biçimlendirdiği fiyat gösterilir).
+ * Varsayım: diyaloğu yoğun oyunda saatte ~[LINES_PER_HOUR] altyazı satırı.
+ */
+object Plans
+{
+	const val LINES_PER_HOUR = 450
+	val STANDART = PlanSpec("standart", "Standart", 10, 4_500)
+	val PRO = PlanSpec("pro", "Pro", 25, 11_000, recommended = true)
+	val PREMIUM = PlanSpec("premium", "Premium", 60, 27_000)
+	/** Ucuzdan pahalıya (yükseltme sırası). */
+	val ALL = listOf(STANDART, PRO, PREMIUM)
+
+	/** Sunucunun deneme dönemi için verdiği "plan" değeri. */
+	const val TRIAL_ID = "deneme"
+	const val TRIAL_NAME = "Deneme"
+	const val TRIAL_LINES = 1_500L
+
+	val recommended: PlanSpec get() = ALL.firstOrNull { it.recommended } ?: ALL.first()
+
+	fun byId(id: String?): PlanSpec? = ALL.firstOrNull { it.id == id }
+
+	/** Sıra (0 = en ucuz); bilinmeyen → -1. */
+	fun rank(id: String?): Int = ALL.indexOfFirst { it.id == id }
+
+	/** Bir üst paket (en üstteyse veya bilinmiyorsa null). */
+	fun next(id: String?): PlanSpec?
+	{
+		val r = rank(id)
+		return if(r < 0) null else ALL.getOrNull(r + 1)
+	}
+
+	fun forHabit(habit: PlayHabit): PlanSpec = when(habit)
+	{
+		PlayHabit.FEW_HOURS_WEEKLY -> STANDART
+		PlayHabit.MOST_EVENINGS -> PRO
+		PlayHabit.LONG_DAILY -> PREMIUM
+	}
+
+	/** Sunucunun plan kimliğinin adı ("deneme" → "Deneme"); bilinmiyorsa null. */
+	fun name(id: String?): String? = if(id == TRIAL_ID) TRIAL_NAME else byId(id)?.name
 }
 
 /** ProductDetails.PricingPhase'in sade karşılığı. */
@@ -54,6 +118,42 @@ data class OfferInfo(
 			?: phases.lastOrNull { !it.isFree }
 }
 
+/** Bir paket ve onun için seçilen teklif (ürün/plan Play'de bulunamadıysa [choice] null). */
+data class PlanOffer(val spec: PlanSpec, val choice: OfferChoice?)
+
+/** Seçilen pakete geçişin türü (Play'deki değiştirme modu buna göre seçilir). */
+enum class PlanChange
+{
+	/** Abonelik yok: yeni satın alma (uygunsa ücretsiz deneme). */
+	NEW,
+	SAME,
+	/** Daha pahalı pakete: hemen geçerli, kalan süre orantılı olarak düşülür (WITH_TIME_PRORATION). */
+	UPGRADE,
+	/** Daha ucuz pakete: mevcut dönem sonunda geçerli (DEFERRED). */
+	DOWNGRADE,
+	/** Abone ama mevcut paket henüz bilinmiyor (sunucuya ulaşılamadı): Play'in varsayılanı (WITH_TIME_PRORATION). */
+	UNKNOWN
+}
+
+object PlanChanges
+{
+	/** [currentPlan] sunucunun bildirdiği temel plan (denemede de temel plan). */
+	fun of(subscribed: Boolean, currentPlan: String?, target: String): PlanChange
+	{
+		if(!subscribed)
+			return PlanChange.NEW
+		val from = Plans.rank(currentPlan)
+		val to = Plans.rank(target)
+		return when
+		{
+			from < 0 || to < 0 -> PlanChange.UNKNOWN
+			to == from -> PlanChange.SAME
+			to > from -> PlanChange.UPGRADE
+			else -> PlanChange.DOWNGRADE
+		}
+	}
+}
+
 /** Satın alma için seçilen teklif ve ekranda gösterilecek metinlerin kaynağı. */
 data class OfferChoice(
 	val offer: OfferInfo,
@@ -71,12 +171,13 @@ object OfferSelector
 	/**
 	 * Google Play yalnızca kullanıcının uygun olduğu teklifleri döndürür (deneme daha önce kullanıldıysa gelmez).
 	 * Önce [basePlanId] planına ait teklifler; içlerinden ücretsiz denemesi olan teklif, yoksa temel plan.
+	 * [strict] = false ise plan bulunamazsa eldeki tüm teklifler arasından seçilir.
 	 */
-	fun select(offers: List<OfferInfo>, basePlanId: String = ProProduct.BASE_PLAN_ID): OfferChoice?
+	fun select(offers: List<OfferInfo>, basePlanId: String = Plans.recommended.id, strict: Boolean = false): OfferChoice?
 	{
-		if(offers.isEmpty())
+		val plan = offers.filter { it.basePlanId == basePlanId }.ifEmpty { if(strict) emptyList() else offers }
+		if(plan.isEmpty())
 			return null
-		val plan = offers.filter { it.basePlanId == basePlanId }.ifEmpty { offers }
 		val chosen = plan.firstOrNull { it.offerId != null && it.freePhase != null }
 			?: plan.firstOrNull { it.offerId == null }
 			?: plan.first()
@@ -88,6 +189,10 @@ object OfferSelector
 			price = chosen.recurringPhase
 		)
 	}
+
+	/** Her paket için (sırayla) kendi temel planının teklifi; Play'de olmayan paketin teklifi null. */
+	fun selectPlans(offers: List<OfferInfo>, plans: List<PlanSpec> = Plans.ALL): List<PlanOffer> =
+		plans.map { PlanOffer(it, select(offers, it.id, strict = true)) }
 }
 
 /** ISO 8601 süreleri ve fiyatları Türkçe metne çevirir. */
@@ -180,11 +285,83 @@ object PriceText
 		return (if(n < 0) "-" else "") + sb
 	}
 
-	/** "Bu ay 1.234 / 30.000 satır · 1 Kasım'da sıfırlanır". */
-	fun quotaLine(used: Long, limit: Long, resetAt: Long, nowMs: Long = System.currentTimeMillis(), tz: TimeZone = TimeZone.getDefault()): String
+	/**
+	 * "Bu ay: 3.120 / 11.000 satır, yenilenme: 1 Kasım"; denemede
+	 * "Deneme: 320 / 1.500 satır, deneme bitişi: 28 Ekim".
+	 */
+	fun quotaLine(used: Long, limit: Long, resetAt: Long, nowMs: Long = System.currentTimeMillis(), tz: TimeZone = TimeZone.getDefault(),
+		trial: Boolean = false): String
 	{
-		val base = "Bu ay ${count(used)} / ${count(limit)} satır"
-		return if(resetAt > 0) "$base · ${date(resetAt, nowMs, tz)} tarihinde sıfırlanır" else base
+		val base = (if(trial) "Deneme: " else "Bu ay: ") + "${count(used)} / ${count(limit)} satır"
+		if(resetAt <= 0)
+			return base
+		return base + (if(trial) ", deneme bitişi: " else ", yenilenme: ") + date(resetAt, nowMs, tz)
+	}
+
+	/** Kota çubuğu için binde oran (0..1000). */
+	fun quotaPermille(used: Long, limit: Long): Int =
+		if(limit <= 0) 0 else ((used.coerceAtLeast(0) * 1000) / limit).coerceIn(0, 1000).toInt()
+}
+
+/** Paket kartındaki metinler. */
+object PlanText
+{
+	/** "Ayda ~25 saat oyun". */
+	fun hours(spec: PlanSpec) = "Ayda ~${spec.hoursPerMonth} saat oyun"
+
+	/** "11.000 satır yapay zekâ çevirisi". */
+	fun lines(spec: PlanSpec) = "${PriceText.count(spec.monthlyLines)} satır yapay zekâ çevirisi"
+
+	/** "3 gün ücretsiz dene" (yalnızca deneme teklifi varsa). */
+	fun trial(choice: OfferChoice?): String? =
+		choice?.takeIf { it.hasTrial }?.let { PriceText.buttonLabel(it) }
+
+	/** Kartın alt satırı: işlemin adı. */
+	fun action(change: PlanChange): String = when(change)
+	{
+		PlanChange.NEW -> "Abone ol"
+		PlanChange.SAME -> "Mevcut paketin"
+		PlanChange.UPGRADE -> "Yükselt"
+		PlanChange.DOWNGRADE -> "Düşür"
+		PlanChange.UNKNOWN -> "Bu pakete geç"
+	}
+
+	/** Ana ekran rozeti / telefon: "Pro paketi", "Ücretsiz deneme"; bilinmiyorsa null. */
+	fun badge(plan: String?): String? = when
+	{
+		plan == Plans.TRIAL_ID -> "Ücretsiz deneme"
+		Plans.byId(plan) != null -> "${Plans.byId(plan)!!.name} paketi"
+		else -> null
+	}
+}
+
+/**
+ * Kota dolunca: o dönemin sonuna kadar cihaz içi çeviriye dönülür ve kullanıcıya bir kez (dönem başına)
+ * bir üst paket önerilir.
+ */
+object QuotaNotice
+{
+	/** Kota bu dönem için dolu mu (sunucunun son bildirdiği kotaya göre)? */
+	fun isExhausted(used: Long, limit: Long, resetAt: Long, nowMs: Long): Boolean =
+		limit > 0 && used >= limit && resetAt > nowMs
+
+	/**
+	 * Tek seferlik bildirim. [plan] sunucunun "plan" değeri, [basePlan] temel plan (denemede de).
+	 */
+	fun message(plan: String?, basePlan: String?, resetAt: Long, nowMs: Long = System.currentTimeMillis(),
+		tz: TimeZone = TimeZone.getDefault()): String
+	{
+		val whenText = if(resetAt > nowMs) PriceText.date(resetAt, nowMs, tz) else null
+		if(plan == Plans.TRIAL_ID)
+		{
+			val start = whenText?.let { " Paketin $it tarihinde başlayınca yapay zekâ çevirisi kaldığı yerden devam eder." } ?: ""
+			return "Ücretsiz denemenin çeviri hakkı doldu; şimdilik cihaz içi çeviri kullanılıyor.$start"
+		}
+		val name = Plans.name(plan ?: basePlan)
+		val head = if(name != null) "$name paketinin bu ayki yapay zekâ çeviri hakkı doldu" else "Bu ayki yapay zekâ çeviri hakkın doldu"
+		val until = whenText?.let { "; $it tarihine kadar cihaz içi çeviri kullanılıyor." } ?: "; ay sonuna kadar cihaz içi çeviri kullanılıyor."
+		val up = Plans.next(plan ?: basePlan)?.let { " Daha çok oynuyorsan ${it.name} paketine geçebilirsin (Ayarlar → AltyazıTR Abonelik)." } ?: ""
+		return head + until + up
 	}
 }
 
@@ -236,12 +413,15 @@ object BillingLogic
 	const val MSG_UNAVAILABLE = "Google Play faturalandırması bu cihazda kullanılamıyor. Aboneliği kullanmak için uygulamayı Google Play'den yükleyin ve Play Store'da oturum açın."
 	const val MSG_SUBS_UNSUPPORTED = "Bu cihazdaki Google Play sürümü abonelikleri desteklemiyor. Play Store'u güncelleyip tekrar deneyin."
 	const val MSG_NETWORK = "Google Play'e ulaşılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin."
-	const val MSG_ITEM_UNAVAILABLE = "AltyazıTR Pro şu anda satın alınamıyor (ürün bulunamadı)."
+	const val MSG_ITEM_UNAVAILABLE = "AltyazıTR aboneliği şu anda satın alınamıyor (ürün bulunamadı)."
 	const val MSG_DEVELOPER = "Satın alma başlatılamadı. Uygulamayı Google Play'den yüklediğinizden emin olun."
 	const val MSG_ERROR = "Google Play bir hata bildirdi. Lütfen biraz sonra tekrar deneyin."
 	const val MSG_CANCELED = "Satın alma iptal edildi."
-	const val MSG_PENDING = "Ödemeniz onay bekliyor. Onaylanınca AltyazıTR Pro kendiliğinden açılır."
+	const val MSG_PENDING = "Ödemeniz onay bekliyor. Onaylanınca aboneliğiniz kendiliğinden başlar."
 	const val MSG_ALREADY_OWNED = "Bu aboneliğe zaten sahipsiniz; durum yenileniyor."
+	const val MSG_SAME_PLAN = "Zaten bu paketi kullanıyorsunuz."
+	const val MSG_UPGRADED = "Paketiniz yükseltildi; yeni satır hakkı birkaç dakika içinde görünür."
+	const val MSG_DOWNGRADE_DEFERRED = "Paket değişikliği alındı; mevcut paketiniz dönem sonuna kadar geçerli kalır."
 
 	/** Yanıt kodunun kullanıcıya gösterilecek Türkçe açıklaması (OK için null). */
 	fun message(code: BillingCode): String? = when(code)

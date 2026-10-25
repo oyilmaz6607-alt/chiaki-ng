@@ -4,14 +4,17 @@ package com.metallic.chiaki.billing
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.metallic.chiaki.subtitle.ProPlan
 import com.metallic.chiaki.subtitle.ProQuota
 
 /**
- * AltyazıTR Pro'nun son bilinen durumu (ayrı SharedPreferences dosyası; ayar dışa aktarma ve telefon
+ * AltyazıTR aboneliğinin son bilinen durumu (ayrı SharedPreferences dosyası; ayar dışa aktarma ve telefon
  * kumandası bu dosyaya erişmez, uygulama yedeğe dahil edilmez — manifest'te allowBackup=false).
+ * Dosya adı geçiş gerekmesin diye eski ("altyazitr_pro") kaldı.
  *
  * BillingRepository Google Play'den doğrulanmış durumu buraya yazar; altyazı servisi Play'e bağlanmayı
  * beklemeden buradan okur. Satın alma jetonu her oturumda sunucu tarafından Google'a doğrulatılır.
+ * Paket (Standart/Pro/Premium/deneme) Play'in Purchase nesnesinde yoktur; sunucunun /v1/session yanıtından gelir.
  */
 class ProStore(context: Context)
 {
@@ -20,9 +23,15 @@ class ProStore(context: Context)
 		private const val FILE = "altyazitr_pro"
 		const val KEY_TOKEN = "purchase_token"
 		const val KEY_AUTO_RENEWING = "auto_renewing"
+		const val KEY_PLAN = "plan"
+		private const val KEY_PLAN_NAME = "plan_name"
+		private const val KEY_BASE_PLAN = "base_plan"
+		private const val KEY_TRIAL = "trial"
 		private const val KEY_QUOTA_USED = "quota_used"
 		private const val KEY_QUOTA_LIMIT = "quota_limit"
 		private const val KEY_QUOTA_RESET = "quota_reset_at"
+		/** Kota doldu bildiriminin gösterildiği kota döneminin bitişi (dönem başına bir kez). */
+		private const val KEY_NOTICE_FOR = "quota_notice_for"
 	}
 
 	val sharedPreferences: SharedPreferences = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -41,20 +50,45 @@ class ProStore(context: Context)
 		sharedPreferences.edit().apply {
 			putString(KEY_TOKEN, token)
 			putBoolean(KEY_AUTO_RENEWING, autoRenewing)
-			// Farklı bir abonelik: eski kotayı gösterme.
+			// Farklı bir abonelik (ör. paket değişikliği → yeni jeton): eski paket ve kotayı gösterme.
 			if(tokenChanged)
+			{
+				clearPlan(this)
 				clearQuota(this)
+			}
 		}.apply()
 	}
 
 	fun clearSubscription()
 	{
-		if(sharedPreferences.contains(KEY_TOKEN) || sharedPreferences.contains(KEY_QUOTA_LIMIT))
+		if(sharedPreferences.contains(KEY_TOKEN) || sharedPreferences.contains(KEY_QUOTA_LIMIT) || sharedPreferences.contains(KEY_PLAN))
 			sharedPreferences.edit().apply {
 				remove(KEY_TOKEN)
 				remove(KEY_AUTO_RENEWING)
+				clearPlan(this)
 				clearQuota(this)
 			}.apply()
+	}
+
+	/** Sunucunun son bildirdiği paket; henüz bilinmiyorsa null. */
+	val plan: ProPlan?
+		get()
+		{
+			val id = sharedPreferences.getString(KEY_PLAN, null) ?: return null
+			return ProPlan(id, sharedPreferences.getString(KEY_PLAN_NAME, null), sharedPreferences.getString(KEY_BASE_PLAN, null),
+				sharedPreferences.getBoolean(KEY_TRIAL, false))
+		}
+
+	fun savePlan(plan: ProPlan)
+	{
+		if(plan == this.plan)
+			return
+		sharedPreferences.edit()
+			.putString(KEY_PLAN, plan.plan)
+			.putString(KEY_PLAN_NAME, plan.planName)
+			.putString(KEY_BASE_PLAN, plan.basePlan)
+			.putBoolean(KEY_TRIAL, plan.trial)
+			.apply()
 	}
 
 	val quota: ProQuota?
@@ -75,10 +109,28 @@ class ProStore(context: Context)
 			.apply()
 	}
 
+	/** Bu kota dönemi için "hak doldu" bildirimi gösterilmeli mi? Gösterilecekse işaretler (true döner). */
+	fun claimQuotaNotice(resetAt: Long): Boolean
+	{
+		if(sharedPreferences.getLong(KEY_NOTICE_FOR, Long.MIN_VALUE) == resetAt)
+			return false
+		sharedPreferences.edit().putLong(KEY_NOTICE_FOR, resetAt).apply()
+		return true
+	}
+
+	private fun clearPlan(editor: SharedPreferences.Editor)
+	{
+		editor.remove(KEY_PLAN)
+		editor.remove(KEY_PLAN_NAME)
+		editor.remove(KEY_BASE_PLAN)
+		editor.remove(KEY_TRIAL)
+	}
+
 	private fun clearQuota(editor: SharedPreferences.Editor)
 	{
 		editor.remove(KEY_QUOTA_USED)
 		editor.remove(KEY_QUOTA_LIMIT)
 		editor.remove(KEY_QUOTA_RESET)
+		editor.remove(KEY_NOTICE_FOR)
 	}
 }
