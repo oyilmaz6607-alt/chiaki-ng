@@ -8,6 +8,8 @@ import android.os.Looper
 import android.util.Log
 import com.metallic.chiaki.BuildConfig
 import com.metallic.chiaki.R
+import com.metallic.chiaki.billing.PriceText
+import com.metallic.chiaki.billing.ProStore
 import com.metallic.chiaki.common.AppDatabase
 import com.metallic.chiaki.common.DiscoveredDisplayHost
 import com.metallic.chiaki.common.DisplayHost
@@ -479,8 +481,30 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 		return array
 	}
 
+	/**
+	 * AltyazıTR Pro durumu (yalnızca okunur): abonelik telefondan başlatılamaz, TV'deki Play hesabıyla yapılır.
+	 * Satın alma jetonu asla gönderilmez.
+	 */
+	private fun proJson(): JSONObject
+	{
+		val store = ProStore(context)
+		val subscribed = store.isSubscribed
+		val quota = store.quota
+		val status = when
+		{
+			subscribed && quota != null -> "AltyazıTR Pro etkin · " + PriceText.quotaLine(quota.used, quota.limit, quota.resetAt)
+			subscribed -> "AltyazıTR Pro etkin"
+			else -> "AltyazıTR Pro: abone değilsiniz. Aboneliği TV'den başlatın (Ayarlar → AltyazıTR Pro veya ana ekrandaki Pro düğmesi)."
+		}
+		return JSONObject()
+			.put("subscribed", subscribed)
+			.put("active", subscribed && preferences.translationEngine == TranslationSettings.ENGINE_PRO)
+			.put("status", status)
+	}
+
 	override fun getSettings(): HttpResponse =
-		ok(JSONObject().put("values", currentValues()).put("specs", specsJson()).put("captionRunning", CaptionService.isRunning))
+		ok(JSONObject().put("values", currentValues()).put("specs", specsJson()).put("captionRunning", CaptionService.isRunning)
+			.put("pro", proJson()))
 
 	override fun postSettings(body: String): HttpResponse
 	{
@@ -515,7 +539,7 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 		}
 		// apply(): dinleyiciler (CaptionService, ayarlar ekranı) ana iş parçacığında haber alır.
 		editor.apply()
-		return ok(JSONObject().put("values", currentValues()).put("captionRunning", CaptionService.isRunning))
+		return ok(JSONObject().put("values", currentValues()).put("captionRunning", CaptionService.isRunning).put("pro", proJson()))
 	}
 
 	// endregion

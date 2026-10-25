@@ -288,13 +288,15 @@ class GeminiBackoff(private val baseMs: Long = 15_000, private val maxMs: Long =
 }
 
 /**
- * "Önce hızlı çeviri, sonra Gemini" kararı (saf mantık).
+ * "Önce hızlı çeviri, sonra Gemini/Pro" kararı (saf mantık).
  * Her altyazı gösterimi bir nesil (gen) numarası alır; bir sonuç yalnızca hâlâ güncel nesle aitse gösterilir,
- * ve Gemini sonucu ekrandayken aynı neslin cihaz içi taslağı onu ezmez.
+ * ve son (Gemini/Pro) sonuç ekrandayken aynı neslin cihaz içi taslağı onu ezmez.
+ * Pro akışının kısmi metni (PRO_PARTIAL) yalnızca ekranda henüz bir şey yokken veya önceki kısmi metnin
+ * yerine yazılır: tam bir taslağı yarım cümleyle değiştirmez; geç gelen taslak da kısmi metni ezmez.
  */
 class RefineState
 {
-	enum class Source { MLKIT, GEMINI, CACHE_GEMINI, CACHE_MLKIT }
+	enum class Source { MLKIT, GEMINI, CACHE_GEMINI, CACHE_MLKIT, PRO, CACHE_PRO, PRO_PARTIAL }
 
 	var gen = 0
 		private set
@@ -309,7 +311,9 @@ class RefineState
 		return gen
 	}
 
-	fun isFinal(s: Source?) = s == Source.GEMINI || s == Source.CACHE_GEMINI
+	fun isFinal(s: Source?) = s == Source.GEMINI || s == Source.CACHE_GEMINI || s == Source.PRO || s == Source.CACHE_PRO
+
+	fun isDraft(s: Source?) = s == Source.MLKIT || s == Source.CACHE_MLKIT
 
 	/** true dönerse çağıran sonucu göstermelidir (ve kaynak kaydedilir). */
 	fun offer(forGen: Int, source: Source): Boolean
@@ -318,7 +322,18 @@ class RefineState
 			return false
 		if(!isFinal(source) && isFinal(shown))
 			return false
+		if(source == Source.PRO_PARTIAL && isDraft(shown))
+			return false
+		if(isDraft(source) && shown == Source.PRO_PARTIAL)
+			return false
 		shown = source
 		return true
+	}
+
+	/** Akış yarıda kesildi: ekrandaki yarım metin yok sayılır, böylece cihaz içi çeviri yerine yazılabilir. */
+	fun dropPartial(forGen: Int)
+	{
+		if(forGen == gen && shown == Source.PRO_PARTIAL)
+			shown = null
 	}
 }

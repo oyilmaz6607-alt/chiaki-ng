@@ -15,7 +15,9 @@ object TranslationSettings
 
 	const val ENGINE_MLKIT = "mlkit"
 	const val ENGINE_GEMINI = "gemini"
-	val ENGINES = listOf(ENGINE_MLKIT, ENGINE_GEMINI)
+	/** AltyazıTR Pro (abonelik): çeviri bizim sunucumuz üzerinden, kullanıcı anahtarı gerekmez (PRO_API.md). */
+	const val ENGINE_PRO = "pro"
+	val ENGINES = listOf(ENGINE_MLKIT, ENGINE_GEMINI, ENGINE_PRO)
 
 	/** https://ai.google.dev/gemini-api/docs/models — kararlı (stable) model kimlikleri. */
 	const val DEFAULT_MODEL = "gemini-3.5-flash-lite"
@@ -24,16 +26,35 @@ object TranslationSettings
 	const val DEFAULT_DRAFT_FIRST = true
 	const val API_KEY_MAX_LENGTH = 200
 
+	/** Kullanıcı hiç seçmediyse: abone → Pro; değilse anahtar varsa Gemini; yoksa cihaz içi. */
+	fun defaultEngine(hasKey: Boolean, subscribed: Boolean = false): String = when
+	{
+		subscribed -> ENGINE_PRO
+		hasKey -> ENGINE_GEMINI
+		else -> ENGINE_MLKIT
+	}
+
+	/** Kayıtlı (seçilen) motor; geçersiz/boşsa [defaultEngine]. */
+	fun chosenEngine(stored: String?, apiKey: String?, subscribed: Boolean = false): String =
+		stored?.takeIf { it in ENGINES } ?: defaultEngine(!apiKey.isNullOrBlank(), subscribed)
+
 	/**
-	 * Etkin motor: kullanıcı açıkça seçtiyse o; hiç seçmediyse anahtar varsa Gemini, yoksa cihaz içi.
-	 * Gemini seçili ama anahtar yoksa da cihaz içi kullanılır.
+	 * Etkin motor: kullanıcı açıkça seçtiyse o; hiç seçmediyse [defaultEngine].
+	 * Gemini seçili ama anahtar yoksa cihaz içi; Pro seçili ama abonelik yoksa anahtar varsa Gemini, yoksa cihaz içi.
 	 */
-	fun effectiveEngine(stored: String?, apiKey: String?): String
+	fun effectiveEngine(stored: String?, apiKey: String?, subscribed: Boolean = false): String
 	{
 		val hasKey = !apiKey.isNullOrBlank()
-		val chosen = stored?.takeIf { it in ENGINES } ?: if(hasKey) ENGINE_GEMINI else ENGINE_MLKIT
-		return if(chosen == ENGINE_GEMINI && hasKey) ENGINE_GEMINI else ENGINE_MLKIT
+		return when(chosenEngine(stored, apiKey, subscribed))
+		{
+			ENGINE_PRO -> if(subscribed) ENGINE_PRO else if(hasKey) ENGINE_GEMINI else ENGINE_MLKIT
+			ENGINE_GEMINI -> if(hasKey) ENGINE_GEMINI else ENGINE_MLKIT
+			else -> ENGINE_MLKIT
+		}
 	}
+
+	/** Sunucuya giden (internet gerektiren) motor mu? Cihaz içi taslak + iyileştirme akışı bunlar için çalışır. */
+	fun isRemote(engine: String) = engine == ENGINE_GEMINI || engine == ENGINE_PRO
 
 	fun normalizeModel(model: String?): String = model?.trim()?.takeIf { isValidModelId(it) } ?: DEFAULT_MODEL
 

@@ -15,11 +15,17 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.core.widget.ImageViewCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.metallic.chiaki.BuildConfig
 import com.metallic.chiaki.R
+import com.metallic.chiaki.billing.BillingRepository
+import com.metallic.chiaki.billing.ProActivity
+import com.metallic.chiaki.billing.ProStore
 import com.metallic.chiaki.common.*
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.companion.CompanionServer
@@ -33,6 +39,7 @@ import com.metallic.chiaki.regist.RegistActivity
 import com.metallic.chiaki.settings.SettingsActivity
 import com.metallic.chiaki.stream.StreamActivity
 import com.metallic.chiaki.subtitle.CaptionService
+import kotlinx.coroutines.launch
 
 /**
  * AltyazıTR: Google TV ana ekranı.
@@ -132,6 +139,7 @@ class MainActivity : AppCompatActivity()
 		}
 		HomeFocus.applyScale(binding.primaryButton, 1.05f)
 		HomeFocus.applyScale(binding.aboutButton, 1.06f)
+		HomeFocus.applyScale(binding.proButton, 1.06f)
 
 		binding.primaryButton.setOnClickListener { primaryAction() }
 		binding.tileRemotePlay.setOnClickListener { remotePlayAction() }
@@ -140,11 +148,17 @@ class MainActivity : AppCompatActivity()
 		binding.tileCompanion.setOnClickListener { showCompanion() }
 		binding.tileHelp.setOnClickListener { showHelp() }
 		binding.aboutButton.setOnClickListener { showAbout() }
+		binding.proButton.setOnClickListener { startActivity(ProActivity.intent(this)) }
 
 		viewModel.displayHosts.observe(this) { hosts ->
 			onHostsChanged(hosts)
 		}
 		viewModel.discoveryActive.observe(this) { updateHero() }
+		lifecycleScope.launch {
+			repeatOnLifecycle(Lifecycle.State.STARTED) {
+				BillingRepository.get(this@MainActivity).state.collect { renderProBadge() }
+			}
+		}
 
 		updateHero()
 		binding.primaryButton.requestFocus()
@@ -166,6 +180,7 @@ class MainActivity : AppCompatActivity()
 	{
 		super.onResume()
 		updateHero()
+		updateProBadge()
 		handler.postDelayed(refreshRunnable, STATE_REFRESH_MS)
 
 		val pendingKey = pendingCaptionKey
@@ -176,6 +191,18 @@ class MainActivity : AppCompatActivity()
 				connectInfoFor(console)?.let { startCaptionMode(console, it) }
 			}
 		}
+	}
+
+	/** Ana ekrandaki Pro rozeti: abone ise "Pro ✓". Durum Google Play'den arka planda tazelenir. */
+	private fun updateProBadge()
+	{
+		renderProBadge()
+		BillingRepository.get(this).start()
+	}
+
+	private fun renderProBadge()
+	{
+		binding.proButton.setText(if(ProStore(this).isSubscribed) R.string.home_pro_badge_active else R.string.home_pro_badge)
 	}
 
 	override fun onPause()

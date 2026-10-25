@@ -664,6 +664,7 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 
 	var specs = null;
 	var values = {};
+	var proInfo = null;
 	var pending = {};
 	var saveTimer = null;
 	var saving = false;
@@ -704,6 +705,7 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 			}
 			specs = data.specs;
 			values = data.values || {};
+			proInfo = data.pro || null;
 			if (!controlsBuilt) buildControls();
 			syncControls();
 			renderPreview();
@@ -715,6 +717,13 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 		root.textContent = "";
 		specs.forEach(function (s) {
 			if (GROUPS[s.key]) root.appendChild(el("h2", { text: GROUPS[s.key], style: "margin-top:" + (root.childNodes.length ? "18px" : "0") }));
+			// AltyazıTR Pro durumu: yalnızca bilgi (abonelik TV'deki Google Play hesabıyla başlatılır).
+			if (s.key === "subtitle_translation_engine") {
+				root.appendChild(el("div", { cls: "ctl", id: "pro-box" }, [
+					el("div", { cls: "ctl-head" }, [el("b", { text: "AltyazıTR Pro" }), el("span", { cls: "muted small", id: "pro-badge" })]),
+					el("div", { cls: "help", id: "pro-status" })
+				]));
+			}
 			var out = el("output", { id: "out-" + s.key });
 			var head = el("div", { cls: "ctl-head" }, [el("b", { text: s.title }), s.type === "int" ? out : null]);
 			var box = el("div", { cls: "ctl" }, [head]);
@@ -816,7 +825,21 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 		if (lbl && s) s.options.forEach(function (o) { if (o.value.toUpperCase() === String(value).toUpperCase()) lbl.textContent = o.label; });
 	}
 
+	function syncPro() {
+		var st = $("pro-status");
+		if (!st) return;
+		var badge = $("pro-badge");
+		if (!proInfo) {
+			$("pro-box").style.display = "none";
+			return;
+		}
+		$("pro-box").style.display = "";
+		st.textContent = proInfo.status || "";
+		badge.textContent = proInfo.subscribed ? (proInfo.active ? "Etkin · kullanılıyor" : "Etkin") : "Abone değil";
+	}
+
 	function syncControls() {
+		syncPro();
 		(specs || []).forEach(function (s) {
 			if (Object.prototype.hasOwnProperty.call(pending, s.key)) return;
 			var v = values[s.key];
@@ -860,6 +883,7 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 		api("POST", "/api/settings", body).then(function (data) {
 			saving = false;
 			if (data.ok) {
+				if (data.pro) proInfo = data.pro;
 				for (var k in data.values) if (!Object.prototype.hasOwnProperty.call(pending, k)) values[k] = data.values[k];
 				if (!Object.keys(pending).length) {
 					syncControls();

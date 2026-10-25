@@ -25,6 +25,14 @@ class CompanionTranslationSettingsTest
 	}
 
 	@Test
+	fun acceptsProEngine()
+	{
+		val r = CompanionSettings.validate(mapOf("subtitle_translation_engine" to "pro"))
+		assertTrue(r.isValid)
+		assertEquals(Value.StringValue("pro"), r.values["subtitle_translation_engine"])
+	}
+
+	@Test
 	fun emptyKeyClearsIt()
 	{
 		val r = CompanionSettings.validate(mapOf("subtitle_gemini_api_key" to ""))

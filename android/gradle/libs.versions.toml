@@ -18,6 +18,9 @@ oboe = "1.10.0"
 mlkit-text-recognition = "16.0.1"
 mlkit-translate = "17.0.3"
 zxing-core = "3.5.3"
+# Play Billing 8.0.0 (30 Haziran 2025): billing-ktx 8.0.0 kotlin-stdlib 1.4.0 ister. 8.1.0+ kotlin-stdlib 2.2.x çektiği için
+# projedeki Kotlin 1.9.24 ile derlenmez; Kotlin yükseltilmeden sürüm artırılmamalı.
+billing = "8.0.0"
 
 [libraries]
 activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "activity" }
@@ -47,6 +50,8 @@ mlkit-translate = { module = "com.google.mlkit:translate", version.ref = "mlkit-
 coroutines-play-services = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "coroutines" }
 
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing-core" }
+
+billing-ktx = { module = "com.android.billingclient:billing-ktx", version.ref = "billing" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

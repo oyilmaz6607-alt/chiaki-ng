@@ -60,10 +60,20 @@
                 android:textSize="15sp" />
         </LinearLayout>
 
+        <!-- AltyazıTR Pro rozeti: abonelik ekranını açar -->
+        <TextView
+            android:id="@+id/proButton"
+            style="@style/Home.Pill"
+            android:layout_marginEnd="10dp"
+            android:text="@string/home_pro_badge"
+            android:nextFocusRight="@+id/aboutButton"
+            android:nextFocusDown="@+id/tileRemotePlay" />
+
         <TextView
             android:id="@+id/aboutButton"
             style="@style/Home.Pill"
             android:text="@string/home_about"
+            android:nextFocusLeft="@id/proButton"
             android:nextFocusDown="@+id/tileRemotePlay" />
     </LinearLayout>
 
