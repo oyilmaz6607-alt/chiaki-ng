@@ -3,6 +3,7 @@
 package com.metallic.chiaki.billing
 
 import android.app.Activity
+import android.app.Application
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -12,18 +13,26 @@ import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.ConsumeParams
 import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.QueryPurchasesParams
+import com.metallic.chiaki.subtitle.ProApi
+import com.metallic.chiaki.subtitle.ProTranslator
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * AltyazıTR aboneliği için Google Play Faturalandırma (Billing Library 8, Kotlin uzantısız Java API).
@@ -36,6 +45,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * geçici bir hatayla biterse artan aralıklarla yeniden denenir. Play'siz cihazlarda (yan yüklenmiş test
  * sürümü vb.) çökme yerine [State.NotConfigured] ile Türkçe açıklama verilir.
  * Doğrulanmış abonelik [ProStore]'a yazılır; altyazı servisi oradan okur.
+ *
+ * Her paketin aylık ve yıllık ("<paket>-yillik") temel planı sorgulanır. Tek seferlik ek paket ([TopUp.PRODUCT_ID],
+ * INAPP, tüketilebilir) sunucu (/v1/topup) kredilendirdikten sonra tüketilir; kredilendirilemezse tüketilmez ve
+ * bir sonraki yenilemede yeniden denenir (para kaybı olmaz).
  */
 class BillingRepository private constructor(context: Context): PurchasesUpdatedListener
 {
@@ -59,17 +72,20 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 		data class NotSubscribed(
 			/** Satın alma için gerekli; ürün henüz/hiç bulunamadıysa null. */
 			val productDetails: ProductDetails?,
-			/** Paketler sırayla (Standart, Pro, Premium) ve her birinin seçilen teklifi. */
+			/** Paketler sırayla (Standart, Pro, Premium) ve her birinin seçilen teklifi (aylık). */
 			val plans: List<PlanOffer>,
 			/** Ödeme onay bekliyor (abonelik henüz başlamaz). */
-			val pending: Boolean = false
+			val pending: Boolean = false,
+			/** Aynı paketlerin yıllık temel planları. */
+			val yearlyPlans: List<PlanOffer> = emptyList()
 		): State()
 		data class Subscribed(
 			val purchaseToken: String,
 			val autoRenewing: Boolean,
 			/** Paket değiştirmek için (fiyatlar, teklifler). */
 			val productDetails: ProductDetails?,
-			val plans: List<PlanOffer>
+			val plans: List<PlanOffer>,
+			val yearlyPlans: List<PlanOffer> = emptyList()
 		): State()
 		data class Error(val message: String): State()
 	}
@@ -90,10 +106,25 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 	private var retryAttempt = 0
 	private var productDetails: ProductDetails? = null
 	private var plans: List<PlanOffer> = OfferSelector.selectPlans(emptyList())
+	private var yearlyPlans: List<PlanOffer> = OfferSelector.selectPlans(emptyList(), period = BillingPeriod.YEARLY)
 	private var status: ProStatus? = null
+	/** Tek seferlik ek paket (INAPP); Play'de yoksa null. */
+	private var topupDetails: ProductDetails? = null
+	private val _topup = MutableStateFlow<TopUpOffer?>(null)
+	/** Ek paketin Play fiyatı (abonelik ekranında %80'den sonra gösterilir); ürün yoksa null. */
+	val topup: StateFlow<TopUpOffer?> = _topup.asStateFlow()
+	/** Sunucuya kredilendirilmekte olan ek paket jetonları (aynı jeton iki kez gönderilmesin). */
+	private val crediting = HashSet<String>()
+	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 	/** Başlatılan paket değişikliğinin türü: sonuç gelince kısa bilgi verilir. */
 	private var pendingChange: PlanChange? = null
 	private val retryRunnable = Runnable { start() }
+
+	init
+	{
+		// %80 uyarısı ana ekran açılınca (oyun dışında) gösterilir.
+		(appContext as? Application)?.let { QuotaWarningNotifier.install(it) }
+	}
 
 	/** Bağlanır (gerekirse) ve ürün + satın alma bilgisini yeniler. Her yerden çağrılabilir. */
 	fun start() = onMain {
@@ -220,9 +251,32 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 				if(product == null)
 					Log.w(TAG, "Ürün bulunamadı: ${ProProduct.PRODUCT_ID} (Play Console'da etkin mi?)")
 				productDetails = product
-				plans = OfferSelector.selectPlans(product?.let { offersOf(it) }.orEmpty())
-				plans.filter { it.choice == null }.forEach { Log.w(TAG, "Temel plan bulunamadı: ${it.spec.id} (Play Console'da etkin mi?)") }
+				val offers = product?.let { offersOf(it) }.orEmpty()
+				plans = OfferSelector.selectPlans(offers)
+				yearlyPlans = OfferSelector.selectPlans(offers, period = BillingPeriod.YEARLY)
+				(plans + yearlyPlans).filter { it.choice == null }.forEach { Log.w(TAG, "Temel plan bulunamadı: ${it.basePlanId} (Play Console'da etkin mi?)") }
 				publish()
+			}
+		}
+		val inapp = QueryProductDetailsParams.newBuilder()
+			.setProductList(listOf(
+				QueryProductDetailsParams.Product.newBuilder()
+					.setProductId(TopUp.PRODUCT_ID)
+					.setProductType(BillingClient.ProductType.INAPP)
+					.build()
+			))
+			.build()
+		c.queryProductDetailsAsync(inapp) { result, details ->
+			val list = details.productDetailsList.orEmpty()
+			onMain {
+				if(codeOf(result) != BillingCode.OK)
+				{
+					Log.w(TAG, "Ek paket sorgusu: ${result.responseCode} ${result.debugMessage}")
+					return@onMain
+				}
+				val product = list.firstOrNull { it.productId == TopUp.PRODUCT_ID }
+				topupDetails = product
+				_topup.value = product?.oneTimePurchaseOfferDetails?.formattedPrice?.takeIf { it.isNotBlank() }?.let { TopUpOffer(it) }
 			}
 		}
 	}
@@ -235,6 +289,116 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 			val list = purchases.orEmpty().toList()
 			onMain { handlePurchases(codeOf(result), list) }
 		}
+		// Kredilendirilmemiş/tüketilmemiş ek paketler (ör. uygulama satın alma sırasında kapandı, bekleyen ödeme onaylandı).
+		val inapp = QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.INAPP).build()
+		c.queryPurchasesAsync(inapp) { result, purchases ->
+			val list = purchases.orEmpty().toList()
+			onMain {
+				if(codeOf(result) == BillingCode.OK)
+					creditTopups(list.map { infoOf(it) }, announcePending = false)
+			}
+		}
+	}
+
+	/**
+	 * Ek paketleri sunucuya kredilendirir, başarılı olunca tüketir. Abonelik yoksa veya sunucuya ulaşılamazsa
+	 * tüketilmez (bir sonraki yenilemede yeniden denenir).
+	 */
+	private fun creditTopups(purchases: List<PurchaseInfo>, announcePending: Boolean)
+	{
+		if(announcePending && TopUp.hasPending(purchases))
+			_messages.tryEmit(TopUp.MSG_PENDING)
+		for(token in TopUp.tokensToCredit(purchases))
+		{
+			if(!crediting.add(token))
+				continue
+			scope.launch {
+				try
+				{
+					val r = withContext(Dispatchers.IO) { ProTranslator.get(appContext).creditTopupBlocking(token) }
+					consume(token)
+					if(r.credited > 0)
+						_messages.tryEmit(TopUp.MSG_CREDITED)
+				}
+				catch(e: ProTranslator.ProException)
+				{
+					Log.w(TAG, "Ek paket kredilendirilemedi: ${e.error.code}")
+					_messages.tryEmit(when(e.error.code)
+					{
+						ProApi.CODE_NO_PURCHASE, ProApi.CODE_NOT_SUBSCRIBED -> TopUp.MSG_NEEDS_SUBSCRIPTION
+						ProApi.CODE_PURCHASE_PENDING -> TopUp.MSG_PENDING
+						else -> TopUp.MSG_RETRY
+					})
+				}
+				catch(e: Exception)
+				{
+					Log.w(TAG, "Ek paket kredilendirilemedi", e)
+					_messages.tryEmit(TopUp.MSG_RETRY)
+				}
+				finally
+				{
+					crediting.remove(token)
+				}
+			}
+		}
+	}
+
+	private fun consume(token: String)
+	{
+		val c = client ?: return
+		val params = ConsumeParams.newBuilder().setPurchaseToken(token).build()
+		c.consumeAsync(params) { result, _ ->
+			// Başarısızsa bir sonraki sorguda yeniden denenir; sunucu aynı jetonu ikinci kez saymaz.
+			if(codeOf(result) != BillingCode.OK)
+				Log.w(TAG, "Tüketme başarısız: ${result.responseCode} ${result.debugMessage}")
+		}
+	}
+
+	/**
+	 * Tek seferlik ek paketin (+2.000 satır, ay sonuna kadar) satın alma ekranını açar. Yalnızca abone iken
+	 * kullanıcı istediğinde (abonelik ekranındaki düğme) çağrılır. false = başlatılamadı.
+	 */
+	fun launchTopup(activity: Activity): Boolean
+	{
+		val c = client
+		val product = topupDetails
+		if(status !is ProStatus.Subscribed)
+		{
+			_messages.tryEmit(TopUp.MSG_NEEDS_SUBSCRIPTION)
+			return false
+		}
+		if(c == null || !c.isReady || product == null)
+		{
+			_messages.tryEmit(if(c != null && c.isReady) BillingLogic.MSG_ITEM_UNAVAILABLE else BillingLogic.MSG_NETWORK)
+			start()
+			return false
+		}
+		val flowParams = BillingFlowParams.newBuilder()
+			.setProductDetailsParamsList(listOf(
+				BillingFlowParams.ProductDetailsParams.newBuilder()
+					.setProductDetails(product)
+					.build()
+			))
+			.build()
+		val result = try
+		{
+			c.launchBillingFlow(activity, flowParams)
+		}
+		catch(e: Exception)
+		{
+			Log.e(TAG, "launchBillingFlow (ek paket)", e)
+			_messages.tryEmit(BillingLogic.MSG_ERROR)
+			return false
+		}
+		val code = codeOf(result)
+		if(code == BillingCode.OK)
+			return true
+		Log.w(TAG, "launchBillingFlow (ek paket): ${result.responseCode} ${result.debugMessage}")
+		if(code == BillingCode.ITEM_ALREADY_OWNED)
+			queryPurchases() // tüketilmemiş eski paket: önce o kredilendirilir
+		else
+			BillingLogic.message(code)?.let { _messages.tryEmit(it) }
+		return false
 	}
 
 	private fun handlePurchases(code: BillingCode, purchases: List<Purchase>)
@@ -272,7 +436,7 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 	{
 		val c = client
 		val product = productDetails
-		val choice = plans.firstOrNull { it.spec.id == planId }?.choice
+		val choice = (plans + yearlyPlans).firstOrNull { it.basePlanId == planId }?.choice
 		val subscribed = status as? ProStatus.Subscribed
 		val change = PlanChanges.of(subscribed != null, currentPlan, planId)
 		if(change == PlanChange.SAME)
@@ -341,7 +505,18 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 	{
 		val list = purchases?.toList().orEmpty()
 		val code = codeOf(result)
-		onMain { handleUpdate(BillingLogic.onPurchasesUpdated(code, list.map { infoOf(it) }), list) }
+		onMain {
+			val infos = list.map { infoOf(it) }
+			val topups = infos.filter { TopUp.PRODUCT_ID in it.products }
+			if(code == BillingCode.OK && topups.isNotEmpty())
+			{
+				creditTopups(topups, announcePending = true)
+				// Yalnızca ek paket geldiyse abonelik durumu değişmedi.
+				if(topups.size == infos.size)
+					return@onMain
+			}
+			handleUpdate(BillingLogic.onPurchasesUpdated(code, infos), list)
+		}
 	}
 
 	private fun handleUpdate(update: PurchaseUpdate, purchases: List<Purchase>)
@@ -403,9 +578,9 @@ class BillingRepository private constructor(context: Context): PurchasesUpdatedL
 		_state.value = when(val s = status)
 		{
 			null -> State.Loading
-			is ProStatus.Subscribed -> State.Subscribed(s.purchaseToken, s.autoRenewing, productDetails, plans)
-			ProStatus.Pending -> State.NotSubscribed(productDetails, plans, pending = true)
-			ProStatus.NotSubscribed -> State.NotSubscribed(productDetails, plans)
+			is ProStatus.Subscribed -> State.Subscribed(s.purchaseToken, s.autoRenewing, productDetails, plans, yearlyPlans)
+			ProStatus.Pending -> State.NotSubscribed(productDetails, plans, pending = true, yearlyPlans = yearlyPlans)
+			ProStatus.NotSubscribed -> State.NotSubscribed(productDetails, plans, yearlyPlans = yearlyPlans)
 			is ProStatus.Unavailable -> State.NotConfigured(s.message)
 			is ProStatus.Failed -> State.Error(s.message)
 		}

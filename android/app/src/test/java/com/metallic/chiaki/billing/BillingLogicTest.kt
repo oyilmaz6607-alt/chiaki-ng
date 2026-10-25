@@ -179,8 +179,8 @@ class BillingLogicTest
 	fun planConfig()
 	{
 		assertEquals(listOf("standart", "pro", "premium"), Plans.ALL.map { it.id })
-		assertEquals(listOf(10, 25, 60), Plans.ALL.map { it.hoursPerMonth })
-		assertEquals(listOf(4_500L, 11_000L, 27_000L), Plans.ALL.map { it.monthlyLines })
+		assertEquals(listOf(10, 22, 50), Plans.ALL.map { it.hoursPerMonth })
+		assertEquals(listOf(4_500L, 10_000L, 24_000L), Plans.ALL.map { it.monthlyLines })
 		assertEquals(1_500L, Plans.TRIAL_LINES)
 		assertEquals(Plans.PRO, Plans.recommended)
 		assertEquals(listOf(Plans.PRO), Plans.ALL.filter { it.recommended })
@@ -243,10 +243,11 @@ class BillingLogicTest
 	fun planTexts()
 	{
 		assertEquals("Ayda ~10 saat oyun", PlanText.hours(Plans.STANDART))
-		assertEquals("Ayda ~60 saat oyun", PlanText.hours(Plans.PREMIUM))
+		assertEquals("Ayda ~22 saat oyun", PlanText.hours(Plans.PRO))
+		assertEquals("Ayda ~50 saat oyun", PlanText.hours(Plans.PREMIUM))
 		assertEquals("4.500 satır yapay zekâ çevirisi", PlanText.lines(Plans.STANDART))
-		assertEquals("11.000 satır yapay zekâ çevirisi", PlanText.lines(Plans.PRO))
-		assertEquals("27.000 satır yapay zekâ çevirisi", PlanText.lines(Plans.PREMIUM))
+		assertEquals("10.000 satır yapay zekâ çevirisi", PlanText.lines(Plans.PRO))
+		assertEquals("24.000 satır yapay zekâ çevirisi", PlanText.lines(Plans.PREMIUM))
 		assertEquals("Pro paketi", PlanText.badge("pro"))
 		assertEquals("Ücretsiz deneme", PlanText.badge("deneme"))
 		assertNull(PlanText.badge(null))
@@ -266,16 +267,130 @@ class BillingLogicTest
 		assertFalse("dönem bitti", QuotaNotice.isExhausted(11000, 11000, now - 1, now))
 		assertFalse(QuotaNotice.isExhausted(0, 0, nov1, now))
 		assertEquals("Pro paketinin bu ayki yapay zekâ çeviri hakkı doldu; 1 Kasım tarihine kadar cihaz içi çeviri kullanılıyor." +
-				" Daha çok oynuyorsan Premium paketine geçebilirsin (Ayarlar → AltyazıTR Abonelik).",
+				" Daha çok oynuyorsan Premium paketine geçebilir ya da tek seferlik +2.000 satır alabilirsin (Ayarlar → AltyazıTR Abonelik).",
 			QuotaNotice.message("pro", "pro", nov1, now, utc))
-		assertEquals("Premium paketinin bu ayki yapay zekâ çeviri hakkı doldu; 1 Kasım tarihine kadar cihaz içi çeviri kullanılıyor.",
+		assertEquals("Premium paketinin bu ayki yapay zekâ çeviri hakkı doldu; 1 Kasım tarihine kadar cihaz içi çeviri kullanılıyor." +
+				" İstersen tek seferlik +2.000 satır alabilirsin (Ayarlar → AltyazıTR Abonelik).",
 			QuotaNotice.message("premium", "premium", nov1, now, utc))
-		assertTrue(QuotaNotice.message("standart", null, nov1, now, utc).endsWith("Pro paketine geçebilirsin (Ayarlar → AltyazıTR Abonelik)."))
+		assertTrue(QuotaNotice.message("standart", null, nov1, now, utc).contains("Pro paketine geçebilir ya da tek seferlik +2.000 satır"))
+		// Yıllık temel plan da aynı paketin adını/yükseltmesini kullanır.
+		assertTrue(QuotaNotice.message(null, "pro-yillik", nov1, now, utc).startsWith("Pro paketinin"))
 		val oct28 = 1_793_145_600_000L
 		assertEquals("Ücretsiz denemenin çeviri hakkı doldu; şimdilik cihaz içi çeviri kullanılıyor." +
 				" Paketin 28 Ekim tarihinde başlayınca yapay zekâ çevirisi kaldığı yerden devam eder.",
 			QuotaNotice.message("deneme", "premium", oct28, now, utc))
-		assertEquals("Bu ayki yapay zekâ çeviri hakkın doldu; ay sonuna kadar cihaz içi çeviri kullanılıyor.",
+		assertEquals("Bu ayki yapay zekâ çeviri hakkın doldu; ay sonuna kadar cihaz içi çeviri kullanılıyor." +
+				" İstersen tek seferlik +2.000 satır alabilirsin (Ayarlar → AltyazıTR Abonelik).",
 			QuotaNotice.message(null, null, 0, now, utc))
+		assertFalse("denemede ek paket önerilmez", QuotaNotice.message("deneme", "premium", oct28, now, utc).contains("2.000"))
+	}
+
+	@Test
+	fun yearlyPlans()
+	{
+		assertEquals("pro-yillik", Plans.basePlanId(Plans.PRO, BillingPeriod.YEARLY))
+		assertEquals("pro", Plans.basePlanId(Plans.PRO, BillingPeriod.MONTHLY))
+		assertEquals(BillingPeriod.YEARLY, Plans.periodOf("premium-yillik"))
+		assertEquals(BillingPeriod.MONTHLY, Plans.periodOf("premium"))
+		assertEquals(BillingPeriod.MONTHLY, Plans.periodOf(null))
+		assertEquals(Plans.PREMIUM, Plans.byId("premium-yillik"))
+		assertEquals("pro", Plans.tierOf("pro-yillik"))
+		assertNull(Plans.tierOf("-yillik"))
+		assertNull(Plans.byId("-yillik"))
+		assertEquals(Plans.PREMIUM, Plans.next("pro-yillik"))
+		assertEquals("Pro paketi", PlanText.badge("pro-yillik"))
+		// Yıllık teklifler kendi temel planından seçilir; aylık teklifle doldurulmaz.
+		val y = phase("₺1.499,99", 1_499_990_000, "P1Y", 0, Recurrence.INFINITE)
+		val offers = planOffers("pro", "₺149,99", 149_990_000, true) + OfferInfo("pro-yillik", null, "tok-pro-y", listOf(y))
+		val yearly = OfferSelector.selectPlans(offers, period = BillingPeriod.YEARLY)
+		assertEquals(listOf(null, "tok-pro-y", null), yearly.map { it.choice?.offer?.offerToken })
+		assertEquals(listOf("standart-yillik", "pro-yillik", "premium-yillik"), yearly.map { it.basePlanId })
+		assertEquals("₺1.499,99 / yıl", PriceText.priceLine(yearly[1].choice!!.price))
+		assertEquals("tok-pro-trial", OfferSelector.selectPlans(offers)[1].choice!!.offer.offerToken)
+	}
+
+	@Test
+	fun planChangesAcrossPeriods()
+	{
+		assertEquals(PlanChange.SAME, PlanChanges.of(true, "pro-yillik", "pro-yillik"))
+		assertEquals("aylık → yıllık aynı paket", PlanChange.UPGRADE, PlanChanges.of(true, "pro", "pro-yillik"))
+		assertEquals("yıllık → aylık aynı paket", PlanChange.DOWNGRADE, PlanChanges.of(true, "pro-yillik", "pro"))
+		assertEquals(PlanChange.UPGRADE, PlanChanges.of(true, "pro-yillik", "premium"))
+		assertEquals(PlanChange.UPGRADE, PlanChanges.of(true, "standart", "premium-yillik"))
+		assertEquals(PlanChange.DOWNGRADE, PlanChanges.of(true, "premium", "pro-yillik"))
+		assertEquals(PlanChange.DOWNGRADE, PlanChanges.of(true, "premium-yillik", "standart-yillik"))
+		assertEquals(PlanChange.NEW, PlanChanges.of(false, null, "pro-yillik"))
+		assertEquals(PlanChange.UNKNOWN, PlanChanges.of(true, "ultra-yillik", "pro"))
+	}
+
+	@Test
+	fun yearlySavingsFromPlayPrices()
+	{
+		fun m(micros: Long, cur: String = "TRY") = PricingPhaseInfo("m", micros, cur, "P1M", 0, Recurrence.INFINITE)
+		fun y(micros: Long, cur: String = "TRY") = PricingPhaseInfo("y", micros, cur, "P1Y", 0, Recurrence.INFINITE)
+		// 10 × aylık (~%17 indirim) → "2 ay bedava"
+		assertEquals(2, YearlySavings.freeMonths(m(79_990_000), y(799_990_000)))
+		assertEquals(2, YearlySavings.freeMonths(m(149_990_000), y(1_499_990_000)))
+		assertEquals(2, YearlySavings.freeMonths(m(349_990_000), y(3_499_990_000)))
+		assertEquals("2 ay bedava", YearlySavings.label(m(149_990_000), y(1_499_990_000)))
+		assertEquals(16, YearlySavings.percent(m(149_990_000), y(1_499_990_000)))
+		// 11 × aylık → 1 ay
+		assertEquals(1, YearlySavings.freeMonths(m(100_000_000), y(1_100_000_000)))
+		// 11,5 × aylık → 0 ay ama %4 indirim
+		assertNull(YearlySavings.freeMonths(m(100_000_000), y(1_150_000_000)))
+		assertEquals("%4 indirim", YearlySavings.label(m(100_000_000), y(1_150_000_000)))
+		// kazanç yok / karşılaştırılamaz
+		assertNull(YearlySavings.label(m(100_000_000), y(1_200_000_000)))
+		assertNull(YearlySavings.label(m(100_000_000), y(900_000_000, "USD")))
+		assertNull(YearlySavings.label(null, y(900_000_000)))
+		assertNull(YearlySavings.label(m(100_000_000), PricingPhaseInfo("y", 900_000_000, "TRY", "P6M", 0, Recurrence.INFINITE)))
+		assertNull(YearlySavings.label(m(0), y(900_000_000)))
+	}
+
+	@Test
+	fun quotaWarningAt80Percent()
+	{
+		val utc = TimeZone.getTimeZone("UTC")
+		val now = 1_793_000_000_000L // 2026-10-26
+		val nov1 = 1_793_491_200_000L
+		assertFalse(QuotaWarning.shouldWarn(7999, 10000, nov1, now))
+		assertTrue(QuotaWarning.shouldWarn(8000, 10000, nov1, now))
+		assertTrue(QuotaWarning.shouldWarn(9999, 10000, nov1, now))
+		assertFalse("%100'de mevcut bildirim", QuotaWarning.shouldWarn(10000, 10000, nov1, now))
+		assertFalse("dönem bitti", QuotaWarning.shouldWarn(9000, 10000, now - 1, now))
+		assertFalse(QuotaWarning.shouldWarn(0, 0, nov1, now))
+		assertEquals("Bu ayın yapay zekâ çeviri hakkı: %85 kullanıldı, 1.500 satır kaldı; 1 Kasım tarihinde yenilenir." +
+				" Hak dolarsa çeviri cihaz içi olarak sürer.", QuotaWarning.message(8500, 10000, nov1, now, utc))
+		assertEquals("Ücretsiz deneme hakkı: %86 kullanıldı, 200 satır kaldı (deneme bitişi: 1 Kasım). Hak dolarsa çeviri cihaz içi olarak sürer.",
+			QuotaWarning.message(1300, 1500, nov1, now, utc, trial = true))
+	}
+
+	@Test
+	fun topUpOffer()
+	{
+		val utc = TimeZone.getTimeZone("UTC")
+		val now = 1_793_000_000_000L
+		val nov1 = 1_793_491_200_000L
+		assertEquals("ek_satir_2000", TopUp.PRODUCT_ID)
+		assertFalse(TopUp.shouldOffer(true, false, 7999, 10000, nov1, now))
+		assertTrue(TopUp.shouldOffer(true, false, 8000, 10000, nov1, now))
+		assertTrue("hak dolunca da", TopUp.shouldOffer(true, false, 10000, 10000, nov1, now))
+		assertFalse("denemede değil", TopUp.shouldOffer(true, true, 1500, 1500, nov1, now))
+		assertFalse("abone değil", TopUp.shouldOffer(false, false, 10000, 10000, nov1, now))
+		assertFalse(TopUp.shouldOffer(true, false, 10000, 10000, now - 1, now))
+		assertEquals("+2.000 satır ekle · ₺39,99", TopUp.buttonLabel(TopUpOffer("₺39,99")))
+		assertEquals("+2.000 satır ekle", TopUp.buttonLabel(null))
+		assertEquals("Tek seferlik, otomatik yenilenmez; 1 Kasım tarihine kadar geçerli.", TopUp.note(nov1, now, utc))
+		val p = listOf(
+			PurchaseInfo(listOf("ek_satir_2000"), PurchaseStateInfo.PURCHASED, "t1", false, false),
+			PurchaseInfo(listOf("ek_satir_2000"), PurchaseStateInfo.PURCHASED, "t1", false, false),
+			PurchaseInfo(listOf("ek_satir_2000"), PurchaseStateInfo.PENDING, "t2", false, false),
+			PurchaseInfo(listOf("altyazitr_abonelik"), PurchaseStateInfo.PURCHASED, "s1", true, true))
+		assertEquals(listOf("t1"), TopUp.tokensToCredit(p))
+		assertTrue(TopUp.hasPending(p))
+		assertFalse(TopUp.hasPending(p.take(2)))
+		// Ek paket abonelik durumunu etkilemez.
+		assertEquals(ProStatus.Subscribed("s1", true), BillingLogic.status(BillingCode.OK, p))
+		assertEquals(listOf<String>(), BillingLogic.tokensToAcknowledge(p))
 	}
 }

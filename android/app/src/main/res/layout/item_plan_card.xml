@@ -50,7 +50,7 @@
         android:textColor="@color/home_text"
         android:textSize="16sp"
         android:fontFamily="sans-serif-medium"
-        tools:text="Ayda ~25 saat oyun" />
+        tools:text="Ayda ~22 saat oyun" />
 
     <TextView
         android:id="@+id/linesTextView"
@@ -59,7 +59,7 @@
         android:layout_marginTop="2dp"
         android:textColor="@color/home_text_muted"
         android:textSize="14sp"
-        tools:text="11.000 satır yapay zekâ çevirisi" />
+        tools:text="10.000 satır yapay zekâ çevirisi" />
 
     <TextView
         android:id="@+id/priceTextView"

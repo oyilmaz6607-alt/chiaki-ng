@@ -23,7 +23,7 @@ import java.net.URL
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * AltyazıTR abonelik istemcisi (PRO_API.md v1.1): abonelik jetonuyla oturum açar, altyazıyı sunucuya gönderir ve
+ * AltyazıTR abonelik istemcisi (PRO_API.md v1.2): abonelik jetonuyla oturum açar, altyazıyı sunucuya gönderir ve
  * Türkçeyi NDJSON akışı olarak okur. Akış sürerken kısmi metin ana iş parçacığında [translate]'in
  * `onPartial` geri çağrısına verilir (en sık ~80 ms'de bir veya noktalamada), sonunda tam metin döner.
  *
@@ -368,6 +368,39 @@ class ProTranslator private constructor(context: Context)
 		val purchaseToken = store.purchaseToken ?: fail(ProApi.CODE_NO_PURCHASE)
 		val s = obtainSession(base, purchaseToken, null, force = true, connectTimeoutMs = 5000, readTimeoutMs = 8000)
 		return s.quota ?: lastQuota
+	}
+
+	/**
+	 * Tek seferlik ek paketi ([com.metallic.chiaki.billing.TopUp]) sunucuya kredilendirir (/v1/topup). Sunucu aynı jetonu
+	 * yalnızca bir kez sayar; daha önce kredilendiyse de Ok döner (çağıran ancak bundan sonra tüketir).
+	 * Yeni kota kaydedilir: hak dolduğu için duran yapay zekâ çevirisi hemen yeniden açılır.
+	 * Engelleyici, Dispatchers.IO'da çağrılmalı. Hata durumunda [ProException].
+	 */
+	fun creditTopupBlocking(topupToken: String): ProApi.TopupResult.Ok
+	{
+		val base = baseUrl ?: fail(ProApi.CODE_NOT_CONFIGURED)
+		val purchaseToken = store.purchaseToken ?: fail(ProApi.CODE_NO_PURCHASE)
+		val body = ProApi.topupBody(topupToken)
+		fun post(session: ProSession): ProApi.TopupResult
+		{
+			val (code, text) = request(base + ProApi.PATH_TOPUP, "POST", body, session.token, "application/json", null, 5000, 10000)
+			return ProApi.parseTopup(code, text)
+		}
+		var r = post(obtainSession(base, purchaseToken, null, force = false, connectTimeoutMs = 5000, readTimeoutMs = 8000))
+		if(r is ProApi.TopupResult.Failure && ProApi.shouldRenewSession(r.error))
+		{
+			invalidateSession(null)
+			r = post(obtainSession(base, purchaseToken, null, force = true, connectTimeoutMs = 5000, readTimeoutMs = 8000))
+		}
+		return when(r)
+		{
+			is ProApi.TopupResult.Ok ->
+			{
+				r.quota?.let { rememberQuota(it) }
+				r
+			}
+			is ProApi.TopupResult.Failure -> fail(r.error.code, r.error.httpCode, r.error.serverMessage)
+		}
 	}
 
 	/** Bağlantıyı önceden ısıtır (TLS + bağlantı havuzu). Engelleyici, hata yok sayılır. */

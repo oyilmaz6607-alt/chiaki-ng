@@ -11,6 +11,7 @@ import com.metallic.chiaki.R
 import com.metallic.chiaki.billing.PlanText
 import com.metallic.chiaki.billing.PriceText
 import com.metallic.chiaki.billing.ProStore
+import com.metallic.chiaki.billing.QuotaWarning
 import com.metallic.chiaki.common.AppDatabase
 import com.metallic.chiaki.common.DiscoveredDisplayHost
 import com.metallic.chiaki.common.DisplayHost
@@ -508,6 +509,10 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 			.put("plan", plan?.plan ?: JSONObject.NULL)
 			.put("planName", planLabel ?: JSONObject.NULL)
 			.put("trial", trial)
+		// %80 uyarısı (telefon sayfası oyun dışıdır): kalan satır ve yenilenme tarihi.
+		val now = System.currentTimeMillis()
+		o.put("warning", if(quota != null && QuotaWarning.shouldWarn(quota.used, quota.limit, quota.resetAt, now))
+			QuotaWarning.message(quota.used, quota.limit, quota.resetAt, now, trial = trial) else JSONObject.NULL)
 		if(quota != null)
 			o.put("quota", JSONObject()
 				.put("used", quota.used)

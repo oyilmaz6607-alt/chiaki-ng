@@ -5,6 +5,7 @@ package com.metallic.chiaki.subtitle
 import com.metallic.chiaki.billing.Plans
 import com.metallic.chiaki.billing.PriceText
 import com.metallic.chiaki.billing.ProProduct
+import com.metallic.chiaki.billing.TopUp
 import java.util.TimeZone
 
 /** Satır kotası (PRO_API.md → quota): ücretli pakette aylık, denemede deneme boyunca. */
@@ -51,17 +52,19 @@ data class ProSession(
 data class ProError(val code: String, val httpCode: Int = 0, val serverMessage: String? = null)
 
 /**
- * AltyazıTR abonelik sunucusu (PRO_API.md v1.1) için istek gövdeleri ve yanıt çözümleme (ağ yok, saf mantık).
+ * AltyazıTR abonelik sunucusu (PRO_API.md v1.2) için istek gövdeleri ve yanıt çözümleme (ağ yok, saf mantık).
  */
 object ProApi
 {
 	const val PATH_HEALTH = "/v1/health"
 	const val PATH_SESSION = "/v1/session"
 	const val PATH_TRANSLATE = "/v1/translate"
+	const val PATH_TOPUP = "/v1/topup"
 	const val NDJSON = "application/x-ndjson"
 
 	const val MAX_TEXT = 600
-	const val MAX_CONTEXT = 4
+	/** Gönderilen en fazla bağlam çifti (ayrıntı: [ProRouting.contextFor]). */
+	const val MAX_CONTEXT = ProRouting.CONTEXT_PAIRS
 	const val CONNECT_TIMEOUT_MS = 2000
 	/** Bir altyazının çevirisi için toplam süre (oturum yenileme dahil). */
 	const val TOTAL_TIMEOUT_MS = 4000L
@@ -77,6 +80,7 @@ object ProApi
 	const val CODE_QUOTA_EXCEEDED = "quota_exceeded"
 	const val CODE_BAD_REQUEST = "bad_request"
 	const val CODE_UPSTREAM_ERROR = "upstream_error"
+	const val CODE_PURCHASE_PENDING = "purchase_pending"
 	// Yerel kodlar
 	const val CODE_NOT_CONFIGURED = "not_configured"
 	const val CODE_NO_PURCHASE = "no_purchase"
@@ -112,22 +116,40 @@ object ProApi
 		return sb.toString()
 	}
 
-	/** Metin ve bağlam sınırları sözleşmedeki gibi kırpılır (≤ 600 karakter, ≤ 4 çift). */
+	/**
+	 * Metin ≤ 600 karakter. Bağlam yalnızca işe yarayacaksa gönderilir ([ProRouting.contextFor]: ≥ 6 kelime ve
+	 * zamir/gönderme; en fazla 2 çift, her biri 160 karakter): daha küçük istem ve daha çok önbellek isabeti.
+	 */
 	fun translateBody(english: String, context: List<SubtitlePair>): String
 	{
-		val sb = StringBuilder(1024)
+		val text = english.trim().take(MAX_TEXT)
+		val sb = StringBuilder(512)
 		sb.append("{\"text\":")
-		MiniJson.quoteTo(sb, english.trim().take(MAX_TEXT))
+		MiniJson.quoteTo(sb, text)
 		sb.append(",\"context\":[")
-		context.filter { it.english.isNotBlank() && it.turkish.isNotBlank() }.takeLast(MAX_CONTEXT).forEachIndexed { i, p ->
+		ProRouting.contextFor(text, context).forEachIndexed { i, p ->
 			if(i > 0) sb.append(',')
 			sb.append("{\"en\":")
-			MiniJson.quoteTo(sb, p.english.trim().take(MAX_TEXT))
+			MiniJson.quoteTo(sb, p.english)
 			sb.append(",\"tr\":")
-			MiniJson.quoteTo(sb, p.turkish.trim().take(MAX_TEXT))
+			MiniJson.quoteTo(sb, p.turkish)
 			sb.append('}')
 		}
 		sb.append("],\"speaker\":null}")
+		return sb.toString()
+	}
+
+	/** /v1/topup gövdesi (tek seferlik ek paket; PRO_API.md v1.2). */
+	fun topupBody(purchaseToken: String): String
+	{
+		val sb = StringBuilder(purchaseToken.length + 120)
+		sb.append("{\"packageName\":")
+		MiniJson.quoteTo(sb, ProProduct.PACKAGE_NAME)
+		sb.append(",\"productId\":")
+		MiniJson.quoteTo(sb, TopUp.PRODUCT_ID)
+		sb.append(",\"purchaseToken\":")
+		MiniJson.quoteTo(sb, purchaseToken)
+		sb.append('}')
 		return sb.toString()
 	}
 
@@ -221,6 +243,25 @@ object ProApi
 		return TranslateResult.Ok(text, quota(root["quota"]), root["cached"] == true)
 	}
 
+	sealed class TopupResult
+	{
+		/** [credited] = bu istekte eklenen satır (daha önce kredilendiyse 0 ve [alreadyCredited]); iki durumda da tüketilebilir. */
+		data class Ok(val credited: Long, val alreadyCredited: Boolean, val quota: ProQuota?): TopupResult()
+		data class Failure(val error: ProError): TopupResult()
+	}
+
+	/** `{"ok":true,"credited":2000,"alreadyCredited":false,"quota":{..}}`. */
+	fun parseTopup(httpCode: Int, body: String?): TopupResult
+	{
+		if(httpCode != 200)
+			return TopupResult.Failure(parseError(httpCode, body))
+		val root = parseObject(body) ?: return TopupResult.Failure(ProError(CODE_BAD_RESPONSE, httpCode))
+		if(root["ok"] != true)
+			return TopupResult.Failure(parseError(httpCode, body))
+		val credited = num(root["credited"]) ?: return TopupResult.Failure(ProError(CODE_BAD_RESPONSE, httpCode))
+		return TopupResult.Ok(credited, root["alreadyCredited"] == true, quota(root["quota"]))
+	}
+
 	/** NDJSON akışının bir satırı. */
 	sealed class StreamEvent
 	{
@@ -278,6 +319,7 @@ object ProApi
 		CODE_RATE_LIMITED -> "Çok fazla istek gönderildi; biraz sonra tekrar denenecek."
 		CODE_UNAUTHORIZED -> "Abonelik oturumu açılamadı; tekrar denenecek."
 		CODE_BAD_REQUEST -> "Çeviri isteği geçersiz."
+		CODE_PURCHASE_PENDING -> TopUp.MSG_PENDING
 		CODE_UPSTREAM_ERROR, CODE_SERVER_ERROR -> "Yapay zekâ çeviri sunucusu şu an yanıt vermiyor."
 		CODE_TIMEOUT -> "Yapay zekâ çevirisi zaman aşımına uğradı."
 		CODE_NETWORK -> "Çeviri sunucusuna bağlanılamadı. İnternet bağlantısını kontrol edin."

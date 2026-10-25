@@ -34,16 +34,39 @@ class ProApiTest
 	fun translateRequestIsTrimmedToContract()
 	{
 		val ctx = (1..6).map { SubtitlePair("en$it", "tr$it") } + SubtitlePair("x".repeat(700), "y")
-		val body = MiniJson.parse(ProApi.translateBody("  " + "a".repeat(650) + " ", ctx)) as Map<*, *>
+		// Uzun ve gönderme içeren satır: yalnızca son 2 çift, her metin 160 karakter.
+		val long = "and then " + "a".repeat(650)
+		val body = MiniJson.parse(ProApi.translateBody("  $long ", ctx)) as Map<*, *>
 		assertEquals(600, (body["text"] as String).length)
-		val c = body["context"] as List<*>
-		assertEquals(4, c.size)
-		assertEquals("en4", (c[0] as Map<*, *>)["en"])
-		assertEquals(600, ((c[3] as Map<*, *>)["en"] as String).length)
-		assertTrue(body.containsKey("speaker"))
-		assertNull(body["speaker"])
+		val withRef = MiniJson.parse(ProApi.translateBody("I told you they would never let us leave", ctx)) as Map<*, *>
+		val c = withRef["context"] as List<*>
+		assertEquals(2, c.size)
+		assertEquals("en6", (c[0] as Map<*, *>)["en"])
+		assertEquals(160, ((c[1] as Map<*, *>)["en"] as String).length)
+		assertTrue(withRef.containsKey("speaker"))
+		assertNull(withRef["speaker"])
+		// Kısa veya göndermesiz satır: bağlam gönderilmez.
+		assertEquals(emptyList<Any>(), (MiniJson.parse(ProApi.translateBody("Hi", ctx)) as Map<*, *>)["context"])
+		assertEquals(emptyList<Any>(), (MiniJson.parse(ProApi.translateBody("Welcome to the old harbor district today", ctx)) as Map<*, *>)["context"])
 		val empty = MiniJson.parse(ProApi.translateBody("Hi", emptyList())) as Map<*, *>
 		assertEquals(emptyList<Any>(), empty["context"])
+	}
+
+	@Test
+	fun topupRequestAndResponse()
+	{
+		val body = MiniJson.parse(ProApi.topupBody("tok.abc")) as Map<*, *>
+		assertEquals("com.altyazitr.oyun", body["packageName"])
+		assertEquals("ek_satir_2000", body["productId"])
+		assertEquals("tok.abc", body["purchaseToken"])
+		val ok = ProApi.parseTopup(200, """{"ok":true,"credited":2000,"alreadyCredited":false,"quota":{"used":10000,"limit":12000,"resetAt":7,"bonus":2000}}""")
+		assertEquals(ProApi.TopupResult.Ok(2000, false, ProQuota(10000, 12000, 7)), ok)
+		assertEquals(ProApi.TopupResult.Ok(0, true, null), ProApi.parseTopup(200, """{"ok":true,"credited":0,"alreadyCredited":true}"""))
+		val pending = ProApi.parseTopup(409, """{"ok":false,"code":"purchase_pending","message":"x"}""") as ProApi.TopupResult.Failure
+		assertEquals(ProApi.CODE_PURCHASE_PENDING, pending.error.code)
+		assertEquals("Ödemeniz onay bekliyor. Onaylanınca ek satırlar kendiliğinden eklenir.", ProApi.userMessage(pending.error))
+		assertEquals(ProApi.CODE_INVALID_PURCHASE, (ProApi.parseTopup(400, """{"ok":false,"code":"invalid_purchase"}""") as ProApi.TopupResult.Failure).error.code)
+		assertEquals(ProApi.CODE_BAD_RESPONSE, (ProApi.parseTopup(200, """{"ok":true}""") as ProApi.TopupResult.Failure).error.code)
 	}
 
 	@Test

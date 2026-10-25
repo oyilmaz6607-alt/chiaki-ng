@@ -40,6 +40,9 @@ function resetFetch() {
 		oauthCalls: 0,
 		/** token → {status, body} */
 		purchases: {},
+		/** tek seferlik ürün: token → {status, body} (purchases.products.get) */
+		products: {},
+		productCalls: 0,
 		/** (req, bodyObj, n) => Response */
 		gemini: () => geminiJson("Merhaba dünya."),
 	};
@@ -86,6 +89,15 @@ globalThis.fetch = async (input, init = {}) => {
 		assert.equal(req.headers.get("authorization"), "Bearer ya29.fake");
 		assert.equal(decodeURIComponent(mp[1]), "com.altyazitr.oyun");
 		const p = F.purchases[decodeURIComponent(mp[2])];
+		if (!p) return Response.json({ error: { code: 404, message: "not found" } }, { status: 404 });
+		return Response.json(p.body ?? {}, { status: p.status ?? 200 });
+	}
+	const pp = /^\/androidpublisher\/v3\/applications\/([^/]+)\/purchases\/products\/([^/]+)\/tokens\/([^/]+)$/.exec(url.pathname);
+	if (url.host === "androidpublisher.googleapis.com" && pp) {
+		F.productCalls++;
+		assert.equal(req.headers.get("authorization"), "Bearer ya29.fake");
+		assert.equal(decodeURIComponent(pp[1]), "com.altyazitr.oyun");
+		const p = F.products[decodeURIComponent(pp[2]) + "/" + decodeURIComponent(pp[3])];
 		if (!p) return Response.json({ error: { code: 404, message: "not found" } }, { status: 404 });
 		return Response.json(p.body ?? {}, { status: p.status ?? 200 });
 	}
@@ -150,7 +162,7 @@ const origLog = console.log;
 test("health", async () => {
 	const r = await call(makeEnv(), "GET", "/v1/health");
 	assert.equal(r.status, 200);
-	assert.deepEqual(r.j, { ok: true, version: "1.1" });
+	assert.deepEqual(r.j, { ok: true, version: "1.2" });
 });
 
 test("routing: preflight 405, wrong method 405, unknown 404", async () => {
@@ -173,7 +185,7 @@ test("session: active subscription → token, quota, expiresAt; JWT valid; acces
 	assert.ok(r.j.expiresAt > Date.now() + 59 * 60e3 && r.j.expiresAt <= Date.now() + 60 * 60e3);
 	assert.deepEqual(Object.keys(r.j.quota).sort(), ["limit", "resetAt", "used"]);
 	assert.equal(r.j.quota.used, 0);
-	assert.equal(r.j.quota.limit, 11000);
+	assert.equal(r.j.quota.limit, 10000);
 	assert.equal(r.j.quota.resetAt, S.nextMonthStart(Date.now()));
 	assert.equal(r.j.plan, "pro");
 	assert.equal(r.j.planName, "Pro");
@@ -336,16 +348,26 @@ test("translate non-stream: request shape, cleaned output, quota counted", async
 	assert.equal(r.j.text, "Merhaba, dostum.");
 	assert.equal(r.j.cached, false);
 	assert.equal(r.j.quota.used, 1);
-	assert.equal(r.j.quota.limit, 11000);
+	assert.equal(r.j.quota.limit, 10000);
 	assert.equal(r.j.quota.resetAt, S.nextMonthStart(Date.now()));
 	assert.ok(seen.url.pathname.endsWith("/models/gemini-3.5-flash-lite:generateContent"));
-	assert.deepEqual(seen.body.generationConfig, { maxOutputTokens: 200, candidateCount: 1, thinkingConfig: { thinkingLevel: "minimal" } });
+	// 2 kelime → clamp(2×2+24, 32, 160) = 32
+	assert.deepEqual(seen.body.generationConfig, { maxOutputTokens: 32, candidateCount: 1, thinkingConfig: { thinkingLevel: "minimal" } });
 	assert.equal(seen.body.systemInstruction.parts[0].text, S.SYSTEM_PROMPT);
-	const u = seen.body.contents[0].parts[0].text;
-	assert.ok(u.includes("EN: Who are you?\nTR: Sen kimsin?"));
+	let u = seen.body.contents[0].parts[0].text;
+	assert.ok(!u.includes("Previous lines"), "short line: no context sent to the model");
 	assert.ok(u.includes("Speaker: Joel"));
 	assert.ok(u.endsWith("LINE: Hello, buddy."));
-	assert.ok(env.ALTYAZI_KV.puts.some((p) => p.k.startsWith("tr:v1:") && p.v === "Merhaba, dostum." && p.o.expirationTtl === 30 * 24 * 3600));
+	assert.ok(env.ALTYAZI_KV.puts.some((p) => p.k.startsWith("tr:v2:") && p.v === "Merhaba, dostum." && p.o.expirationTtl === 90 * 24 * 3600));
+	// Uzun, gönderme içeren satır: yalnızca son 2 çift, her biri 160 karaktere kırpılmış.
+	const ctx4 = [1, 2, 3, 4].map((i) => ({ en: "Line " + i + " " + "x".repeat(300), tr: "Satır " + i }));
+	await tr(env, tok, { text: "I told you we should never have trusted them", context: ctx4 });
+	u = seen.body.contents[0].parts[0].text;
+	assert.ok(!u.includes("Line 1") && !u.includes("Line 2"));
+	assert.ok(u.includes("EN: Line 3 " + "x".repeat(160 - 7) + "\nTR: Satır 3"));
+	assert.ok(!u.includes("x".repeat(160 - 6)));
+	assert.ok(u.includes("TR: Satır 4"));
+	assert.equal(seen.body.generationConfig.maxOutputTokens, 2 * 9 + 24);
 	const q = env.ALTYAZI_KV.puts.find((p) => p.k.startsWith("q:"));
 	assert.equal(q.v, "1");
 	assert.match(q.k, /^q:[0-9a-f]{32}:\d{4}-\d{2}$/);
@@ -369,15 +391,125 @@ test("translate: cache hit → cached:true, no upstream, no quota", async () => 
 	assert.deepEqual(s.lines[0], { done: true, text: "Merhaba dünya.", quota: s.lines[0].quota, cached: true });
 });
 
-test("cache key: short lines ignore context, long lines include last pair", async () => {
+test("cache key: effective context only, model/speaker separate", async () => {
 	const m = "gemini-3.5-flash-lite";
 	const c1 = [{ en: "a", tr: "b" }], c2 = [{ en: "c", tr: "d" }];
-	assert.equal(await S.cacheKey(m, "Open the door now", c1, null), await S.cacheKey(m, "Open the door now", c2, null));
+	const key = (t, c, sp = null, model = m) => S.cacheKey(model, t, S.effectiveContext(t, c), sp);
+	assert.equal(await key("Open the door now", c1), await key("Open the door now", c2));
+	// Uzun ama gönderme yok → bağlam gönderilmez, anahtar aynı.
+	const plain = "Welcome to the old harbor district of Boston";
+	assert.equal(await key(plain, c1), await key(plain, c2));
 	const long = "I told you we should never have come back to this town";
-	assert.notEqual(await S.cacheKey(m, long, c1, null), await S.cacheKey(m, long, c2, null));
-	assert.equal(await S.cacheKey(m, long, [], null), await S.cacheKey(m, long, [], null));
-	assert.notEqual(await S.cacheKey(m, "Hi", [], "A"), await S.cacheKey(m, "Hi", [], "B"));
-	assert.notEqual(await S.cacheKey("gemini-3.6-flash", "Hi", [], null), await S.cacheKey(m, "Hi", [], null));
+	assert.notEqual(await key(long, c1), await key(long, c2));
+	assert.equal(await key(long, []), await key(long, []));
+	assert.notEqual(await key("Hi", [], "A"), await key("Hi", [], "B"));
+	assert.notEqual(await key("Hi", [], null, "gemini-3.6-flash"), await key("Hi", [], null));
+});
+
+test("cache key normalization: case, quotes, ellipsis, spacing, punctuation, OCR noise", async () => {
+	const m = "gemini-3.5-flash-lite";
+	const k = (t) => S.cacheKey(m, t, [], null);
+	const base = await k("Don't go there... it's not safe!");
+	for (const v of ["don’t go there… it’s not safe!", "Don't  go there ... it's not safe!!", "Don't go there... it's not safe! |",
+		"| Don't go there... it's not safe!", "DON'T go there... it's not safe!"])
+		assert.equal(await k(v), base, v);
+	assert.equal(await k("We should go."), await k("We should go"));
+	assert.equal(await k("We should go,"), await k("We should go"));
+	assert.notEqual(await k("We should go?"), await k("We should go"), "question mark changes meaning");
+	assert.notEqual(await k("We should go..."), await k("We should go"), "trailing ellipsis kept");
+	assert.notEqual(await k("PRESS X TO CONTINUE"), await k("Press X to continue"), "all-caps kept separate");
+	assert.equal(S.canonicalKeyText("“Hello” — she said…"), 'n|"hello" - she said...');
+});
+
+test("speaker label: stripped from key/prompt, re-attached to result (cache shared across speakers)", async () => {
+	assert.deepEqual(S.splitSpeakerLabel("JOEL: Get down!"), { label: "JOEL:", body: "Get down!" });
+	assert.deepEqual(S.splitSpeakerLabel("MARY JANE: Over here."), { label: "MARY JANE:", body: "Over here." });
+	assert.deepEqual(S.splitSpeakerLabel("Note: this is mixed case"), { label: "", body: "Note: this is mixed case" });
+	assert.deepEqual(S.splitSpeakerLabel("A: b"), { label: "", body: "A: b" });
+	assert.deepEqual(S.splitSpeakerLabel("10: 30"), { label: "", body: "10: 30" });
+	const env = makeEnv();
+	const tok = await newSession(env);
+	let prompt;
+	F.gemini = (req, body) => { prompt = body.contents[0].parts[0].text; return geminiJson("Eğil!"); };
+	const a = await tr(env, tok, { text: "JOEL: Get down!" });
+	assert.equal(a.j.text, "JOEL: Eğil!");
+	assert.ok(prompt.endsWith("LINE: Get down!") && !prompt.includes("JOEL"));
+	const n = F.calls.length;
+	const b = await tr(env, tok, { text: "ELLIE: Get down!" });
+	assert.equal(b.j.cached, true);
+	assert.equal(b.j.text, "ELLIE: Eğil!");
+	assert.equal((await tr(env, tok, { text: "Get down!" })).j.text, "Eğil!");
+	assert.equal(F.calls.length, n);
+	assert.ok(env.ALTYAZI_KV.puts.some((p) => p.k.startsWith("tr:v2:") && p.v === "Eğil!"), "stored without label");
+	// Akış: etiket ilk parça olarak gelir.
+	F.gemini = () => sseResponse([sseText("Koş, hemen!")]);
+	const s = await tr(env, tok, { text: "TESS: Run, now!" }, true);
+	assert.equal(s.lines[0].d, "TESS: ");
+	assert.equal(s.lines.at(-1).text, "TESS: Koş, hemen!");
+	assert.equal(s.lines.filter((l) => "d" in l).map((l) => l.d).join(""), "TESS: Koş, hemen!");
+});
+
+test("context gate: references / lowercase / and-but-so, ≥ 6 words", () => {
+	assert.equal(S.contextUseful("I told you we should never trust them"), true);
+	assert.equal(S.contextUseful("That's what I was trying to say"), true);
+	assert.equal(S.contextUseful("and then we ran to the car"), true);
+	assert.equal(S.contextUseful("But we never made it out alive"), true);
+	assert.equal(S.contextUseful("So we wait until the sun sets"), true);
+	assert.equal(S.contextUseful("Welcome to the old harbor district today"), false);
+	assert.equal(S.contextUseful("Give it to me"), false, "too short");
+	assert.equal(S.contextUseful("Withering heathens hit the shore again"), false, "no substring matches");
+	const ctx = [1, 2, 3, 4].map((i) => ({ en: "e" + i, tr: "t" + i }));
+	assert.deepEqual(S.effectiveContext("Give it to me now please, they said", ctx), [{ en: "e3", tr: "t3" }, { en: "e4", tr: "t4" }]);
+	assert.deepEqual(S.effectiveContext("Welcome to the old harbor district today", ctx), []);
+});
+
+test("output cap: clamp(2 × words + 24, 32, 160)", () => {
+	assert.equal(S.maxOutputTokens("Hi"), 32);
+	assert.equal(S.maxOutputTokens("one two three four five"), 34);
+	assert.equal(S.maxOutputTokens(Array(50).fill("w").join(" ")), 124);
+	assert.equal(S.maxOutputTokens(Array(100).fill("w").join(" ")), 160);
+});
+
+test("translate: MAX_TOKENS → non-stream retried once with 200; stream → error, nothing cached/counted", async () => {
+	const env = makeEnv();
+	const tok = await newSession(env);
+	const caps = [];
+	F.gemini = (req, body, n) => {
+		caps.push(body.generationConfig.maxOutputTokens);
+		if (caps.length === 1) return Response.json({ candidates: [{ content: { parts: [{ text: "Yarım çev" }] }, finishReason: "MAX_TOKENS" }] });
+		return geminiJson("Tam çeviri burada.");
+	};
+	const r = await tr(env, tok, { text: "Hold on a second" });
+	assert.equal(r.j.text, "Tam çeviri burada.");
+	assert.deepEqual(caps, [32, 200]);
+	F.gemini = () => sseResponse([sseText("Yarım ama uzun bir çeviri metni "), sseEvent({ candidates: [{ content: { parts: [{ text: "ve" }] }, finishReason: "MAX_TOKENS" }] })]);
+	const before = env.ALTYAZI_KV.puts.length;
+	const s = await tr(env, tok, { text: "Another line to translate" }, true);
+	assert.equal(s.lines.at(-1).error, "upstream_error");
+	assert.ok(!env.ALTYAZI_KV.puts.slice(before).some((p) => p.k.startsWith("tr:") || p.k.startsWith("q:")));
+});
+
+test("isolate LRU in front of KV + daily hit/miss counters (no text)", async () => {
+	const env = makeEnv();
+	const tok = await newSession(env);
+	await tr(env, tok, { text: "Hot line here" });
+	const gets = env.ALTYAZI_KV.gets;
+	const r = await tr(env, tok, { text: "hot line here" });
+	assert.equal(r.j.cached, true);
+	// LRU isabeti: çeviri anahtarı için KV okunmaz (yalnızca kota okuması).
+	assert.equal(env.ALTYAZI_KV.gets - gets, 1);
+	S._resetState(); // yeni isolate: LRU boş → KV'den
+	const tok2 = await newSession(env);
+	assert.equal((await tr(env, tok2, { text: "Hot line here" })).j.cached, true);
+	await tr(env, tok2, { text: "Hot line here" });
+	await S._flushStats(env);
+	const st = JSON.parse(env.ALTYAZI_KV.m.get("st:" + S.dayKey(Date.now())).v);
+	assert.deepEqual(st, { mem: 1, kv: 1, miss: 0 }, JSON.stringify(st));
+	for (const k of env.ALTYAZI_KV.m.keys()) if (k.startsWith("st:")) assert.ok(!env.ALTYAZI_KV.m.get(k).v.includes("Hot"));
+	// LRU sınırı
+	for (let i = 0; i < S.LRU_MAX + 10; i++) S.lruPut("k" + i, "v");
+	assert.equal(S.lruGet("k0"), null);
+	assert.equal(S.lruGet("k" + (S.LRU_MAX + 9)), "v");
 });
 
 test("translate stream: SSE → NDJSON deltas + done (split chunks, thoughts skipped)", async () => {
@@ -505,7 +637,7 @@ test("translate: quota exhaustion → 429 with reset message; cached still serve
 	const r = await tr(env, tok, { text: "Three" });
 	assert.equal(r.status, 429);
 	assert.equal(r.j.code, "quota_exceeded");
-	assert.match(r.j.message, /^Pro paketinin bu ayki 2 satırlık çeviri hakkı doldu\. Hak \d\d\.\d\d\.\d{4} tarihinde yenilenir\. Daha fazlası için Premium paketine geçebilirsiniz\.$/);
+	assert.match(r.j.message, /^Pro paketinin bu ayki 2 satırlık çeviri hakkı doldu\. Hak \d\d\.\d\d\.\d{4} tarihinde yenilenir\. Daha fazlası için Premium paketine geçebilirsiniz\. İsterseniz ay sonuna kadar geçerli 2\.000 satırlık ek paket de alabilirsiniz\.$/);
 	const c = await tr(env, tok, { text: "One" });
 	assert.equal(c.status, 200);
 	assert.equal(c.j.cached, true);
@@ -593,7 +725,7 @@ test("helpers: b64url roundtrip, month math", () => {
 
 test("plans: per-plan caps and names in /v1/session (defaults)", async () => {
 	const env = makeEnv();
-	for (const [plan, limit, name] of [["standart", 4500, "Standart"], ["pro", 11000, "Pro"], ["premium", 27000, "Premium"]]) {
+	for (const [plan, limit, name] of [["standart", 4500, "Standart"], ["pro", 10000, "Pro"], ["premium", 24000, "Premium"]]) {
 		const t = "tok_plan_" + plan + "_123456";
 		F.purchases[t] = activeSub(undefined, undefined, undefined, { basePlanId: plan });
 		const r = await call(env, "POST", "/v1/session", { body: sessionBody(t) });
@@ -616,7 +748,7 @@ test("plans: server enforces the session plan's cap (standart vs premium)", asyn
 	const r = await tr(env, std, { text: "Line two" });
 	assert.equal(r.status, 429);
 	assert.equal(r.j.code, "quota_exceeded");
-	assert.match(r.j.message, /^Standart paketinin .* Daha fazlası için Pro paketine geçebilirsiniz\.$/);
+	assert.match(r.j.message, /^Standart paketinin .* Daha fazlası için Pro paketine geçebilirsiniz\. İsterseniz .* ek paket de alabilirsiniz\.$/);
 	const prem = await newSession(env, "tok_prem_cap_123456", { basePlanId: "premium" });
 	for (const t of ["P1", "P2", "P3"]) assert.equal((await tr(env, prem, { text: "Premium " + t })).status, 200);
 	const last = await tr(env, prem, { text: "Premium P4" });
@@ -625,7 +757,7 @@ test("plans: server enforces the session plan's cap (standart vs premium)", asyn
 });
 
 test("plans: PLAN_LIMITS override, invalid JSON falls back to defaults", () => {
-	assert.deepEqual(S.planLimits({}), { standart: 4500, pro: 11000, premium: 27000, deneme: 1500 });
+	assert.deepEqual(S.planLimits({}), { standart: 4500, pro: 10000, premium: 24000, deneme: 1500 });
 	assert.deepEqual(S.planLimits({ PLAN_LIMITS: '{"standart":100,"pro":200}' }), { standart: 100, pro: 200, deneme: 1500 });
 	for (const bad of ["{oops", "[1,2]", '{"pro":-1}', '{"pro":"9"}', '{"Pro X":5}', '{"deneme":5}', "null"])
 		assert.deepEqual(S.planLimits({ PLAN_LIMITS: bad }), S.DEFAULT_PLAN_LIMITS, bad);
@@ -742,7 +874,7 @@ test("upgrade: linkedPurchaseToken keeps the same monthly quota bucket (chain re
 	assert.equal(r1.status, 200, r1.text);
 	assert.equal(r1.j.plan, "pro");
 	assert.equal(r1.j.quota.used, 1, "usage carried within the month");
-	assert.equal(r1.j.quota.limit, 11000);
+	assert.equal(r1.j.quota.limit, 10000);
 	const p1 = JSON.parse(Buffer.from(r1.j.sessionToken.split(".")[0], "base64url").toString());
 	assert.equal(p1.sub, (await S.sha256Hex(t1)).slice(0, 32));
 	assert.equal(p1.qb, h0);
@@ -779,6 +911,134 @@ test("session token: plan is signed (tampering → 401), v1 tokens rejected", as
 	const v1 = v1p + "." + S.b64urlEncode(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(v1p)));
 	assert.equal(await S.verifySession(SECRET, v1, Date.now()), null);
 	assert.equal((await tr(env, v1, { text: "Hello" })).j.code, "unauthorized");
+});
+
+// ---------------------------------------------------------------- yıllık planlar ve ek paket (v1.2)
+
+test("yearly base plans map to the same monthly caps", async () => {
+	const env = makeEnv();
+	for (const [bp, plan, limit, bpName] of [["standart-yillik", "standart", 4500, "Standart (yıllık)"], ["pro-yillik", "pro", 10000, "Pro (yıllık)"], ["premium-yillik", "premium", 24000, "Premium (yıllık)"]]) {
+		const t = "tok_year_" + bp + "_1234";
+		F.purchases[t] = activeSub(undefined, undefined, undefined, { basePlanId: bp });
+		const r = await call(env, "POST", "/v1/session", { body: sessionBody(t) });
+		assert.equal(r.status, 200, r.text);
+		assert.equal(r.j.plan, plan);
+		assert.equal(r.j.basePlan, bp);
+		assert.equal(r.j.basePlanName, bpName);
+		assert.equal(r.j.quota.limit, limit);
+		assert.equal(r.j.quota.resetAt, S.nextMonthStart(Date.now()), "quota still resets monthly");
+		assert.equal(JSON.parse(Buffer.from(r.j.sessionToken.split(".")[0], "base64url").toString()).plan, plan);
+	}
+	const L = S.DEFAULT_PLAN_LIMITS;
+	assert.equal(S.resolvePlan(L, "pro"), "pro");
+	assert.equal(S.resolvePlan(L, "pro-yillik"), "pro");
+	assert.equal(S.resolvePlan(L, "deneme-yillik"), null);
+	assert.equal(S.resolvePlan(L, "deneme"), null);
+	assert.equal(S.resolvePlan(L, "ultra-yillik"), null);
+	assert.equal(S.resolvePlan(L, "-yillik"), null);
+	assert.equal(S.resolvePlan({ ...L, "pro-yillik": 12000 }, "pro-yillik"), "pro-yillik", "explicit entry wins");
+	// Aylık → yıllık geçiş (linkedPurchaseToken): aynı ay içindeki kullanım taşınır.
+	const t0 = "tok_m2y_monthly_123456";
+	const tok0 = await newSession(env, t0, { basePlanId: "pro" });
+	await tr(env, tok0, { text: "Monthly to yearly" });
+	F.purchases["tok_m2y_yearly_1234567"] = activeSub(undefined, undefined, undefined, { basePlanId: "pro-yillik", linkedPurchaseToken: t0 });
+	const y = await call(env, "POST", "/v1/session", { body: sessionBody("tok_m2y_yearly_1234567") });
+	assert.equal(y.j.quota.used, 1);
+	// Deneme yıllık planda da çalışır.
+	F.purchases["tok_year_trial_12345"] = activeSub(undefined, undefined, undefined, { basePlanId: "premium-yillik", offerId: "deneme-3gun", offerPhase: { freeTrial: {} } });
+	const tri = await call(env, "POST", "/v1/session", { body: sessionBody("tok_year_trial_12345") });
+	assert.equal(tri.j.plan, "deneme");
+	assert.equal(tri.j.basePlan, "premium-yillik");
+});
+
+const topupBody = (purchaseToken, productId = "ek_satir_2000") => ({ packageName: "com.altyazitr.oyun", productId, purchaseToken });
+const product = (over = {}) => ({ status: 200, body: { kind: "androidpublisher#productPurchase", purchaseTimeMillis: String(Date.now()), purchaseState: 0,
+	consumptionState: 0, orderId: "GPA.1234-5678-9012-34567", purchaseType: 0, acknowledgementState: 0, productId: "ek_satir_2000", quantity: 1, regionCode: "TR", ...over } });
+const topup = (env, tok, body) => call(env, "POST", "/v1/topup", { body, headers: { authorization: "Bearer " + tok } });
+
+test("topup: valid purchase credits +2000 once; quota check uses cap + bonus; idempotent", async () => {
+	const env = makeEnv({ PLAN_LIMITS: '{"standart":1,"pro":2,"premium":3,"deneme":1}' });
+	const tok = await newSession(env, "tok_topup_sub_1234567", { basePlanId: "pro" });
+	await tr(env, tok, { text: "Line one" });
+	await tr(env, tok, { text: "Line two" });
+	assert.equal((await tr(env, tok, { text: "Line three" })).j.code, "quota_exceeded");
+	F.products["ek_satir_2000/tok_pack_aaaaaaaaaa"] = product();
+	const r = await topup(env, tok, topupBody("tok_pack_aaaaaaaaaa"));
+	assert.equal(r.status, 200, r.text);
+	assert.equal(r.j.credited, 2000);
+	assert.equal(r.j.alreadyCredited, false);
+	assert.deepEqual(r.j.quota, { used: 2, limit: 2002, resetAt: S.nextMonthStart(Date.now()), bonus: 2000 });
+	const bk = env.ALTYAZI_KV.puts.find((p) => p.k.endsWith(":bonus"));
+	assert.match(bk.k, /^q:[0-9a-f]{32}:\d{4}-\d{2}:bonus$/);
+	assert.equal(bk.v, "2000");
+	const rec = env.ALTYAZI_KV.puts.find((p) => p.k.startsWith("tu:"));
+	assert.equal(rec.k, "tu:" + (await S.sha256Hex("tok_pack_aaaaaaaaaa")));
+	assert.ok(!rec.v.includes("tok_pack"), "raw token never stored");
+	const ok = await tr(env, tok, { text: "Line three" });
+	assert.equal(ok.status, 200, ok.text);
+	assert.equal(ok.j.quota.limit, 2002);
+	assert.equal(ok.j.quota.bonus, 2000);
+	// Aynı jeton tekrar: kredi yok, 200 (uygulama tüketmeyi yeniden deneyebilir); Google'a tekrar sorulmaz.
+	const n = F.productCalls;
+	const again = await topup(env, tok, topupBody("tok_pack_aaaaaaaaaa"));
+	assert.equal(again.status, 200);
+	assert.equal(again.j.credited, 0);
+	assert.equal(again.j.alreadyCredited, true);
+	assert.equal(again.j.quota.limit, 2002);
+	assert.equal(F.productCalls, n);
+	// Yeni isolate + yeni oturum: kredi KV'den okunur.
+	S._resetState();
+	const s2 = await call(env, "POST", "/v1/session", { body: sessionBody("tok_topup_sub_1234567") });
+	assert.equal(s2.j.quota.limit, 2002);
+	// İkinci, farklı paket birikir.
+	F.products["ek_satir_2000/tok_pack_bbbbbbbbbb"] = product();
+	assert.equal((await topup(env, s2.j.sessionToken, topupBody("tok_pack_bbbbbbbbbb"))).j.quota.limit, 4002);
+});
+
+test("topup: wrong product, refunded/canceled, pending, already consumed, unknown → rejected, nothing credited", async () => {
+	const env = makeEnv();
+	const tok = await newSession(env, "tok_topup_bad_1234567");
+	let r = await topup(env, tok, topupBody("tok_pack_cccccccccc", "altyazitr_abonelik"));
+	assert.equal(r.status, 400); assert.equal(r.j.code, "invalid_purchase");
+	r = await topup(env, tok, { ...topupBody("tok_pack_cccccccccc"), packageName: "com.evil" });
+	assert.equal(r.j.code, "invalid_purchase");
+	r = await topup(env, tok, { packageName: "com.altyazitr.oyun" });
+	assert.equal(r.j.code, "bad_request");
+	F.products["ek_satir_2000/tok_pack_refunded1"] = product({ purchaseState: 1 });
+	r = await topup(env, tok, topupBody("tok_pack_refunded1"));
+	assert.equal(r.status, 400); assert.equal(r.j.code, "invalid_purchase");
+	F.products["ek_satir_2000/tok_pack_pending11"] = product({ purchaseState: 2 });
+	r = await topup(env, tok, topupBody("tok_pack_pending11"));
+	assert.equal(r.status, 409); assert.equal(r.j.code, "purchase_pending");
+	assert.ok(r.j.message.length > 0);
+	F.products["ek_satir_2000/tok_pack_consumed1"] = product({ consumptionState: 1 });
+	r = await topup(env, tok, topupBody("tok_pack_consumed1"));
+	assert.equal(r.j.code, "invalid_purchase");
+	F.products["ek_satir_2000/tok_pack_otherprod"] = product({ productId: "baska_urun" });
+	r = await topup(env, tok, topupBody("tok_pack_otherprod"));
+	assert.equal(r.j.code, "invalid_purchase");
+	r = await topup(env, tok, topupBody("tok_pack_unknown11"));
+	assert.equal(r.status, 400); assert.equal(r.j.code, "invalid_purchase");
+	assert.ok(!env.ALTYAZI_KV.puts.some((p) => p.k.endsWith(":bonus") || p.k.startsWith("tu:")));
+	// Oturumsuz → 401
+	assert.equal((await call(env, "POST", "/v1/topup", { body: topupBody("tok_pack_cccccccccc") })).status, 401);
+	assert.equal((await call(env, "GET", "/v1/topup")).status, 405);
+	// Pending olan sonra onaylanınca kredilenir (kayıt yazılmamıştı).
+	F.products["ek_satir_2000/tok_pack_pending11"] = product();
+	S._resetState();
+	r = await topup(env, tok, topupBody("tok_pack_pending11"));
+	assert.equal(r.j.credited, 2000);
+});
+
+test("evaluateProductPurchase unit (ProductPurchase fields)", () => {
+	const ok = product().body;
+	assert.deepEqual(S.evaluateProductPurchase(ok, "ek_satir_2000"), { ok: true, quantity: 1 });
+	assert.deepEqual(S.evaluateProductPurchase({ ...ok, quantity: 3 }, "ek_satir_2000"), { ok: true, quantity: 3 });
+	const noQty = { ...ok }; delete noQty.quantity; delete noQty.productId;
+	assert.deepEqual(S.evaluateProductPurchase(noQty, "ek_satir_2000"), { ok: true, quantity: 1 });
+	assert.equal(S.evaluateProductPurchase({ ...ok, purchaseState: 1 }, "ek_satir_2000").ok, false);
+	assert.equal(S.evaluateProductPurchase({ ...ok, purchaseState: undefined }, "ek_satir_2000").ok, false);
+	assert.equal(S.evaluateProductPurchase(null, "ek_satir_2000").ok, false);
 });
 
 // ---------------------------------------------------------------- çalıştır

@@ -13,7 +13,7 @@ import java.util.TimeZone
  */
 object ProProduct
 {
-	/** PRO_API.md (v1.1) ile aynı olmalı. */
+	/** PRO_API.md (v1.2) ile aynı olmalı. */
 	const val PACKAGE_NAME = "com.altyazitr.oyun"
 	/** Tek abonelik ürünü; paketler bunun temel planlarıdır ([Plans]). */
 	const val PRODUCT_ID = "altyazitr_abonelik"
@@ -23,8 +23,11 @@ object ProProduct
 	const val PRIVACY_URL = "https://github.com/oyilmaz6607-alt/chiaki-ng/blob/main/store/GIZLILIK.md"
 }
 
+/** Ödeme dönemi: her paketin aylık ve yıllık ("<paket>-yillik") temel planı vardır; satır hakkı ikisinde de aylıktır. */
+enum class BillingPeriod { MONTHLY, YEARLY }
+
 /**
- * Bir abonelik paketi = Play Console'daki bir temel plan.
+ * Bir abonelik paketi = Play Console'daki bir temel plan (aylık; yıllık karşılığı [Plans.basePlanId]).
  * [monthlyLines] yalnızca gösterim içindir; asıl sınırı sunucu uygular (wrangler.toml → PLAN_LIMITS).
  */
 data class PlanSpec(
@@ -49,8 +52,8 @@ object Plans
 {
 	const val LINES_PER_HOUR = 450
 	val STANDART = PlanSpec("standart", "Standart", 10, 4_500)
-	val PRO = PlanSpec("pro", "Pro", 25, 11_000, recommended = true)
-	val PREMIUM = PlanSpec("premium", "Premium", 60, 27_000)
+	val PRO = PlanSpec("pro", "Pro", 22, 10_000, recommended = true)
+	val PREMIUM = PlanSpec("premium", "Premium", 50, 24_000)
 	/** Ucuzdan pahalıya (yükseltme sırası). */
 	val ALL = listOf(STANDART, PRO, PREMIUM)
 
@@ -59,12 +62,26 @@ object Plans
 	const val TRIAL_NAME = "Deneme"
 	const val TRIAL_LINES = 1_500L
 
+	/** Yıllık temel planın kimliği: "<paket>-yillik" (sunucu aynı paketin aylık sınırını uygular). */
+	const val YEARLY_SUFFIX = "-yillik"
+
 	val recommended: PlanSpec get() = ALL.firstOrNull { it.recommended } ?: ALL.first()
 
-	fun byId(id: String?): PlanSpec? = ALL.firstOrNull { it.id == id }
+	/** Temel plan kimliği → paket kimliği ("pro-yillik" → "pro"). */
+	fun tierOf(basePlanId: String?): String? = basePlanId?.removeSuffix(YEARLY_SUFFIX)?.takeIf { it.isNotEmpty() }
+
+	fun periodOf(basePlanId: String?): BillingPeriod =
+		if(basePlanId != null && basePlanId.endsWith(YEARLY_SUFFIX)) BillingPeriod.YEARLY else BillingPeriod.MONTHLY
+
+	/** Paket + dönem → Play temel plan kimliği. */
+	fun basePlanId(spec: PlanSpec, period: BillingPeriod): String =
+		if(period == BillingPeriod.YEARLY) spec.id + YEARLY_SUFFIX else spec.id
+
+	/** Paket (yıllık temel plan kimliği de kabul edilir). */
+	fun byId(id: String?): PlanSpec? = tierOf(id)?.let { t -> ALL.firstOrNull { it.id == t } }
 
 	/** Sıra (0 = en ucuz); bilinmeyen → -1. */
-	fun rank(id: String?): Int = ALL.indexOfFirst { it.id == id }
+	fun rank(id: String?): Int = byId(id)?.let { ALL.indexOf(it) } ?: -1
 
 	/** Bir üst paket (en üstteyse veya bilinmiyorsa null). */
 	fun next(id: String?): PlanSpec?
@@ -119,7 +136,10 @@ data class OfferInfo(
 }
 
 /** Bir paket ve onun için seçilen teklif (ürün/plan Play'de bulunamadıysa [choice] null). */
-data class PlanOffer(val spec: PlanSpec, val choice: OfferChoice?)
+data class PlanOffer(val spec: PlanSpec, val choice: OfferChoice?, val period: BillingPeriod = BillingPeriod.MONTHLY)
+{
+	val basePlanId: String get() = Plans.basePlanId(spec, period)
+}
 
 /** Seçilen pakete geçişin türü (Play'deki değiştirme modu buna göre seçilir). */
 enum class PlanChange
@@ -137,13 +157,18 @@ enum class PlanChange
 
 object PlanChanges
 {
-	/** [currentPlan] sunucunun bildirdiği temel plan (denemede de temel plan). */
+	/**
+	 * [currentPlan] ve [target] Play temel plan kimlikleri (aylık "pro" veya yıllık "pro-yillik"; denemede de temel plan).
+	 * Sıra önce pakete, aynı pakette döneme göredir: üst pakete geçiş (dönemi ne olursa olsun) ve aynı pakette
+	 * aylıktan yıllığa geçiş yükseltme (hemen, kalan süre orantılı); alt pakete ve yıllıktan aylığa geçiş düşürme
+	 * (dönem sonunda). Aynı temel plan = SAME.
+	 */
 	fun of(subscribed: Boolean, currentPlan: String?, target: String): PlanChange
 	{
 		if(!subscribed)
 			return PlanChange.NEW
-		val from = Plans.rank(currentPlan)
-		val to = Plans.rank(target)
+		val from = order(currentPlan)
+		val to = order(target)
 		return when
 		{
 			from < 0 || to < 0 -> PlanChange.UNKNOWN
@@ -151,6 +176,12 @@ object PlanChanges
 			to > from -> PlanChange.UPGRADE
 			else -> PlanChange.DOWNGRADE
 		}
+	}
+
+	private fun order(basePlanId: String?): Int
+	{
+		val r = Plans.rank(basePlanId)
+		return if(r < 0) -1 else r * 2 + (if(Plans.periodOf(basePlanId) == BillingPeriod.YEARLY) 1 else 0)
 	}
 }
 
@@ -190,9 +221,50 @@ object OfferSelector
 		)
 	}
 
-	/** Her paket için (sırayla) kendi temel planının teklifi; Play'de olmayan paketin teklifi null. */
-	fun selectPlans(offers: List<OfferInfo>, plans: List<PlanSpec> = Plans.ALL): List<PlanOffer> =
-		plans.map { PlanOffer(it, select(offers, it.id, strict = true)) }
+	/** Her paket için (sırayla) [period] dönemindeki temel planının teklifi; Play'de olmayan planın teklifi null. */
+	fun selectPlans(offers: List<OfferInfo>, plans: List<PlanSpec> = Plans.ALL, period: BillingPeriod = BillingPeriod.MONTHLY): List<PlanOffer> =
+		plans.map { PlanOffer(it, select(offers, Plans.basePlanId(it, period), strict = true), period) }
+}
+
+/**
+ * Yıllık planın aylığa göre kazancı, Play'in fiyatlarından hesaplanır (fiyat kodda yazılı değildir).
+ * "2 ay bedava" = (12 × aylık − yıllık) ÷ aylık, %5 tolerans ile aşağı yuvarlanır (ör. 149,99 / 1.499,99 → 2).
+ */
+object YearlySavings
+{
+	/** Kaç ay bedava (≥ 1); karşılaştırılamıyorsa (fiyat yok, para birimi farklı, dönem farklı) veya kazanç < 1 ay ise null. */
+	fun freeMonths(monthly: PricingPhaseInfo?, yearly: PricingPhaseInfo?): Int?
+	{
+		val m = comparable(monthly, yearly) ?: return null
+		val months = (m.first * 12 - m.second).toDouble() / m.first
+		val n = Math.floor(months + 0.05).toInt()
+		return n.takeIf { it >= 1 }
+	}
+
+	/** İndirim yüzdesi (aşağı yuvarlanmış); kazanç yoksa null. */
+	fun percent(monthly: PricingPhaseInfo?, yearly: PricingPhaseInfo?): Int?
+	{
+		val m = comparable(monthly, yearly) ?: return null
+		val pct = ((m.first * 12 - m.second) * 100 / (m.first * 12)).toInt()
+		return pct.takeIf { it >= 1 }
+	}
+
+	/** Karttaki kısa metin: "2 ay bedava", yoksa "%8 indirim", yoksa null. */
+	fun label(monthly: PricingPhaseInfo?, yearly: PricingPhaseInfo?): String? =
+		freeMonths(monthly, yearly)?.let { "$it ay bedava" } ?: percent(monthly, yearly)?.let { "%$it indirim" }
+
+	private fun comparable(monthly: PricingPhaseInfo?, yearly: PricingPhaseInfo?): Pair<Long, Long>?
+	{
+		monthly ?: return null
+		yearly ?: return null
+		if(monthly.priceMicros <= 0 || yearly.priceMicros <= 0 || monthly.currencyCode != yearly.currencyCode)
+			return null
+		if(PriceText.parse(monthly.billingPeriod) != PriceText.Period(0, 1, 0, 0) || PriceText.parse(yearly.billingPeriod) != PriceText.Period(1, 0, 0, 0))
+			return null
+		if(yearly.priceMicros >= monthly.priceMicros * 12)
+			return null
+		return monthly.priceMicros to yearly.priceMicros
+	}
 }
 
 /** ISO 8601 süreleri ve fiyatları Türkçe metne çevirir. */
@@ -286,7 +358,7 @@ object PriceText
 	}
 
 	/**
-	 * "Bu ay: 3.120 / 11.000 satır, yenilenme: 1 Kasım"; denemede
+	 * "Bu ay: 3.120 / 10.000 satır, yenilenme: 1 Kasım"; denemede
 	 * "Deneme: 320 / 1.500 satır, deneme bitişi: 28 Ekim".
 	 */
 	fun quotaLine(used: Long, limit: Long, resetAt: Long, nowMs: Long = System.currentTimeMillis(), tz: TimeZone = TimeZone.getDefault(),
@@ -306,10 +378,10 @@ object PriceText
 /** Paket kartındaki metinler. */
 object PlanText
 {
-	/** "Ayda ~25 saat oyun". */
+	/** "Ayda ~22 saat oyun". */
 	fun hours(spec: PlanSpec) = "Ayda ~${spec.hoursPerMonth} saat oyun"
 
-	/** "11.000 satır yapay zekâ çevirisi". */
+	/** "10.000 satır yapay zekâ çevirisi". */
 	fun lines(spec: PlanSpec) = "${PriceText.count(spec.monthlyLines)} satır yapay zekâ çevirisi"
 
 	/** "3 gün ücretsiz dene" (yalnızca deneme teklifi varsa). */
@@ -360,9 +432,77 @@ object QuotaNotice
 		val name = Plans.name(plan ?: basePlan)
 		val head = if(name != null) "$name paketinin bu ayki yapay zekâ çeviri hakkı doldu" else "Bu ayki yapay zekâ çeviri hakkın doldu"
 		val until = whenText?.let { "; $it tarihine kadar cihaz içi çeviri kullanılıyor." } ?: "; ay sonuna kadar cihaz içi çeviri kullanılıyor."
-		val up = Plans.next(plan ?: basePlan)?.let { " Daha çok oynuyorsan ${it.name} paketine geçebilirsin (Ayarlar → AltyazıTR Abonelik)." } ?: ""
-		return head + until + up
+		val up = Plans.next(plan ?: basePlan)?.let { " Daha çok oynuyorsan ${it.name} paketine geçebilir" } ?: ""
+		val more = if(up.isNotEmpty()) "$up ya da tek seferlik +${PriceText.count(TopUp.LINES)} satır alabilirsin (Ayarlar → AltyazıTR Abonelik)."
+			else " İstersen tek seferlik +${PriceText.count(TopUp.LINES)} satır alabilirsin (Ayarlar → AltyazıTR Abonelik)."
+		return head + until + more
 	}
+}
+
+/**
+ * %80 uyarısı: oyun dışında (ana ekran açılınca, telefon sayfası) dönem başına bir kez, kalan satır ve yenilenme
+ * tarihiyle. Oyun sırasında asla gösterilmez; %100'de mevcut davranış (sessizce cihaz içi + tek bildirim) sürer.
+ */
+object QuotaWarning
+{
+	const val WARN_PERMILLE = 800
+
+	fun shouldWarn(used: Long, limit: Long, resetAt: Long, nowMs: Long): Boolean =
+		limit > 0 && resetAt > nowMs && used < limit && used * 1000 >= limit * WARN_PERMILLE
+
+	fun message(used: Long, limit: Long, resetAt: Long, nowMs: Long = System.currentTimeMillis(), tz: TimeZone = TimeZone.getDefault(),
+		trial: Boolean = false): String
+	{
+		val pct = PriceText.quotaPermille(used, limit) / 10
+		val left = PriceText.count((limit - used).coerceAtLeast(0))
+		val date = PriceText.date(resetAt, nowMs, tz)
+		return if(trial)
+			"Ücretsiz deneme hakkı: %$pct kullanıldı, $left satır kaldı (deneme bitişi: $date). Hak dolarsa çeviri cihaz içi olarak sürer."
+		else
+			"Bu ayın yapay zekâ çeviri hakkı: %$pct kullanıldı, $left satır kaldı; $date tarihinde yenilenir. Hak dolarsa çeviri cihaz içi olarak sürer."
+	}
+}
+
+/** Google Play'deki tek seferlik ek paketin sade karşılığı (fiyat Play'den). */
+data class TopUpOffer(val formattedPrice: String)
+
+/**
+ * Tek seferlik ek satır paketi (tüketilebilir uygulama içi ürün): +2.000 yapay zekâ satırı, satın alındığı kota
+ * ayının sonuna kadar geçerli. Yalnızca hak dolunca (tek seferlik bildirimde) ve abonelik ekranında kullanım
+ * %80'i geçince önerilir; oyun sırasında asla açılır pencere olarak gösterilmez. Sunucu kredilendirince tüketilir.
+ */
+object TopUp
+{
+	const val PRODUCT_ID = "ek_satir_2000"
+	const val LINES = 2_000L
+	const val OFFER_PERMILLE = 800
+
+	const val MSG_CREDITED = "+2.000 satır eklendi. Ay sonuna kadar geçerli."
+	const val MSG_PENDING = "Ödemeniz onay bekliyor. Onaylanınca ek satırlar kendiliğinden eklenir."
+	const val MSG_RETRY = "Ek paket alındı; satırlar eklenemedi, birazdan yeniden denenecek."
+	const val MSG_NEEDS_SUBSCRIPTION = "Ek paket yalnızca etkin bir abonelikle kullanılabilir."
+
+	/** Ek paket önerilmeli mi: ücretli abonelik (deneme değil), bu dönemin kullanımı ≥ %80. */
+	fun shouldOffer(subscribed: Boolean, trial: Boolean, used: Long, limit: Long, resetAt: Long, nowMs: Long): Boolean =
+		subscribed && !trial && limit > 0 && resetAt > nowMs && used * 1000 >= limit * OFFER_PERMILLE
+
+	/** "+2.000 satır ekle · ₺39,99". */
+	fun buttonLabel(offer: TopUpOffer?): String =
+		"+${PriceText.count(LINES)} satır ekle" + (offer?.formattedPrice?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
+
+	/** "Tek seferlik, otomatik yenilenmez; 1 Kasım tarihine kadar geçerli." */
+	fun note(resetAt: Long, nowMs: Long = System.currentTimeMillis(), tz: TimeZone = TimeZone.getDefault()): String =
+		"Tek seferlik, otomatik yenilenmez; " + (if(resetAt > nowMs) "${PriceText.date(resetAt, nowMs, tz)} tarihine kadar geçerli." else "ay sonuna kadar geçerli.")
+
+	/** Sunucuya kredilendirilecek (ve sonra tüketilecek) ek paket jetonları: yalnızca PURCHASED. */
+	fun tokensToCredit(purchases: List<PurchaseInfo>?): List<String> =
+		purchases.orEmpty()
+			.filter { PRODUCT_ID in it.products && it.state == PurchaseStateInfo.PURCHASED && it.purchaseToken.isNotEmpty() }
+			.map { it.purchaseToken }
+			.distinct()
+
+	fun hasPending(purchases: List<PurchaseInfo>?): Boolean =
+		purchases.orEmpty().any { PRODUCT_ID in it.products && it.state == PurchaseStateInfo.PENDING }
 }
 
 /** Purchase.getPurchaseState() karşılığı. */

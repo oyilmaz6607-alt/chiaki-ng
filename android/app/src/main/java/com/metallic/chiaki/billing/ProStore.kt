@@ -32,6 +32,8 @@ class ProStore(context: Context)
 		private const val KEY_QUOTA_RESET = "quota_reset_at"
 		/** Kota doldu bildiriminin gösterildiği kota döneminin bitişi (dönem başına bir kez). */
 		private const val KEY_NOTICE_FOR = "quota_notice_for"
+		/** %80 uyarısının gösterildiği kota döneminin bitişi (dönem başına bir kez). */
+		private const val KEY_WARNING_FOR = "quota_warning_for"
 	}
 
 	val sharedPreferences: SharedPreferences = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -118,6 +120,15 @@ class ProStore(context: Context)
 		return true
 	}
 
+	/** Bu kota dönemi için %80 uyarısı gösterilmeli mi? Gösterilecekse işaretler (true döner). */
+	fun claimQuotaWarning(resetAt: Long): Boolean
+	{
+		if(sharedPreferences.getLong(KEY_WARNING_FOR, Long.MIN_VALUE) == resetAt)
+			return false
+		sharedPreferences.edit().putLong(KEY_WARNING_FOR, resetAt).apply()
+		return true
+	}
+
 	private fun clearPlan(editor: SharedPreferences.Editor)
 	{
 		editor.remove(KEY_PLAN)
@@ -132,5 +143,6 @@ class ProStore(context: Context)
 		editor.remove(KEY_QUOTA_LIMIT)
 		editor.remove(KEY_QUOTA_RESET)
 		editor.remove(KEY_NOTICE_FOR)
+		editor.remove(KEY_WARNING_FOR)
 	}
 }

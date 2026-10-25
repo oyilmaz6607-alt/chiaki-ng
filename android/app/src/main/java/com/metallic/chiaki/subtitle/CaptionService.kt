@@ -836,16 +836,20 @@ class CaptionService : Service()
 	{
 		currentCandidate = c
 		val gen = refine.newGeneration()
-		val remote = remoteEngine()
-		val useRemote = remote != null
-		if(remote != null)
+		val chosenRemote = remoteEngine()
+		if(chosenRemote != null)
 		{
-			cache.get(remote, c.text)?.let {
-				val source = if(remote == TranslationSettings.ENGINE_PRO) RefineState.Source.CACHE_PRO else RefineState.Source.CACHE_GEMINI
+			cache.get(chosenRemote, c.text)?.let {
+				val source = if(chosenRemote == TranslationSettings.ENGINE_PRO) RefineState.Source.CACHE_PRO else RefineState.Source.CACHE_GEMINI
 				display(gen, it, source, frameAt, c.text)
 				return
 			}
 		}
+		// Abonelikte kısa satırlar (≤ 3 kelime / ≤ 18 karakter / arayüz yazısı) sunucuya gitmez: cihaz içi, kota harcamaz.
+		// Cihaz içi model hazır değilse yine sunucuya gider (çeviri hiç durmaz).
+		val shortOnDevice = chosenRemote == TranslationSettings.ENGINE_PRO && modelReady && ProRouting.isOnDevice(c.text)
+		val remote = if(shortOnDevice) null else chosenRemote
+		val useRemote = remote != null
 		val draft = cache.get(TranslationSettings.ENGINE_MLKIT, c.text)
 		val wantDraft = !useRemote || draftFirst
 		if(draft != null && wantDraft)
@@ -858,7 +862,7 @@ class CaptionService : Service()
 			placedBox = null
 		}
 		if(draft == null && wantDraft && modelReady)
-			launchMlKit(gen, c.text, frameAt, isFallback = false)
+			launchMlKit(gen, c.text, frameAt, isFallback = shortOnDevice)
 		if(!useRemote)
 		{
 			if(!modelReady)

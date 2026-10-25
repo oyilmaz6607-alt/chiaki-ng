@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 // AltyazıTR abonelik çeviri sunucusu (Cloudflare Worker).
-// Sözleşme: ../PRO_API.md (v1.1). Bağımlılık yok; yalnızca Workers Web API'leri.
+// Sözleşme: ../PRO_API.md (v1.2). Bağımlılık yok; yalnızca Workers Web API'leri.
 //
 // Gizli değerler (wrangler secret): GEMINI_API_KEY, SESSION_SECRET, GOOGLE_SERVICE_ACCOUNT_JSON
 // Değişkenler (wrangler.toml [vars]): GEMINI_MODEL, PLAN_LIMITS, MAX_TEXT_CHARS
@@ -26,23 +26,29 @@
  *
  * @typedef {{waitUntil: (p: Promise<any>) => void}} Ctx
  * @typedef {{en: string, tr: string}} Pair
- * @typedef {{used: number, limit: number, resetAt: number}} Quota
+ * @typedef {{used: number, limit: number, resetAt: number, bonus?: number}} Quota
  * @typedef {{sub: string, exp: number, plan: string, qb: string, te?: number}} SessionClaims
  */
 
 // ---------------------------------------------------------------- sabitler
 
-export const API_VERSION = "1.1";
+export const API_VERSION = "1.2";
 export const PACKAGE_NAME = "com.altyazitr.oyun";
 export const PRODUCT_ID = "altyazitr_abonelik";
 export const MAX_BODY_BYTES = 8 * 1024;
 export const MAX_TEXT_HARD = 600; // sözleşme üst sınırı
+/** İstekte kabul edilen en fazla bağlam çifti (eski istemciler 4 gönderir). */
 export const MAX_CONTEXT = 4;
+/** Modele gerçekte giden bağlam: son 2 çift, her metin en fazla 160 karakter (fazlası yok sayılır). */
+export const USED_CONTEXT = 2;
+export const CONTEXT_CHARS = 160;
+/** Bağlam yalnızca bu kadar ve daha uzun satırlarda (ve gönderme/zamir varsa) kullanılır. */
+export const CONTEXT_MIN_WORDS = 6;
 export const MAX_SPEAKER = 60;
 export const SESSION_TTL_MS = 60 * 60 * 1000;
 export const VERIFY_CACHE_TTL_S = 600; // aktif / geçersiz sonuçlar
 export const VERIFY_NEG_CACHE_TTL_S = 60; // "abone değil" kısa tutulur (yeni satın alma hemen geçsin)
-export const TR_CACHE_TTL_S = 30 * 24 * 3600;
+export const TR_CACHE_TTL_S = 90 * 24 * 3600;
 export const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 
 // ---- paketler (tek yapılandırma yeri; sınırlar wrangler.toml → PLAN_LIMITS ile değiştirilebilir)
@@ -52,15 +58,28 @@ export const TRIAL_PLAN = "deneme";
 export const TRIAL_OFFER_ID = "deneme-3gun";
 export const TRIAL_DAYS = 3;
 /** Temel plan kimliği → aylık satır sınırı; "deneme" = 3 günlük deneme boyunca toplam satır. */
-export const DEFAULT_PLAN_LIMITS = Object.freeze({ standart: 4500, pro: 11000, premium: 27000, deneme: 1500 });
+export const DEFAULT_PLAN_LIMITS = Object.freeze({ standart: 4500, pro: 10000, premium: 24000, deneme: 1500 });
+/** Yıllık temel planlar "<paket>-yillik" kimliğiyle aynı paketin aylık sınırını kullanır (kota yine aylık sıfırlanır). */
+export const YEARLY_SUFFIX = "-yillik";
+/** Tek seferlik ek satır paketi (tüketilebilir uygulama içi ürün): kota ayının sonuna kadar geçerli. */
+export const TOPUP_PRODUCT_ID = "ek_satir_2000";
+export const TOPUP_LINES = 2000;
+/** Ek paket kayıtları (jeton özeti → kredi) bu kadar tutulur: aynı satın alma bir kez sayılır. */
+export const TOPUP_RECORD_TTL_S = 400 * 24 * 3600;
 /** Kullanıcıya gösterilen paket adları. */
 export const PLAN_NAMES = Object.freeze({ standart: "Standart", pro: "Pro", premium: "Premium", deneme: "Deneme" });
 /** Plan değişikliği zinciri (linkedPurchaseToken → kota kovası) KV'de bu kadar tutulur. */
 export const LINK_TTL_S = 400 * 24 * 3600;
 export const TRIAL_QUOTA_TTL_S = 30 * 24 * 3600;
 export const DEFAULT_TIMEOUT_MS = 4000;
-export const MAX_OUTPUT_TOKENS = 200;
-export const SHORT_LINE_WORDS = 6;
+/** Çıkış jetonu sınırı girişle orantılı: clamp(2 × kelime + 24, 32, 160). Kesilen yanıt bir kez 200 ile denenir. */
+export const MIN_OUTPUT_TOKENS = 32;
+export const MAX_OUTPUT_TOKENS = 160;
+export const RETRY_OUTPUT_TOKENS = 200;
+/** İsolate içi sıcak satır önbelleği (KV'nin önünde). */
+export const LRU_MAX = 2000;
+/** Önbellek isabet/ıska sayaçları KV'ye en fazla bu aralıkla yazılır (st:YYYY-MM-DD). */
+export const STATS_FLUSH_MS = 60_000;
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models/";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -86,6 +105,7 @@ export const MESSAGES = {
 	invalid_purchase: "Satın alma doğrulanamadı.",
 	rate_limited: "Çok fazla istek. Lütfen biraz bekleyin.",
 	quota_exceeded: "Bu ayki çeviri sınırına ulaşıldı.",
+	purchase_pending: "Ödeme henüz onaylanmadı.",
 	upstream_error: "Çeviri servisi şu an yanıt vermiyor.",
 	server_error: "Sunucu hatası. Lütfen daha sonra tekrar deneyin.",
 	not_found: "Bulunamadı.",
@@ -210,6 +230,29 @@ export function nextPlan(limits, plan) {
 	return best;
 }
 
+/**
+ * Play temel plan kimliği → kota paketi. PLAN_LIMITS'te doğrudan varsa o; "<paket>-yillik" ise "<paket>"
+ * (yıllık plan aynı aylık sınırı kullanır). Bilinmiyorsa / "deneme" ise null.
+ * @param {Record<string, number>} limits @param {string} basePlanId
+ */
+export function resolvePlan(limits, basePlanId) {
+	if (!basePlanId || basePlanId === TRIAL_PLAN) return null;
+	const has = (/** @type {string} */ k) => Object.prototype.hasOwnProperty.call(limits, k);
+	if (has(basePlanId)) return basePlanId;
+	if (basePlanId.endsWith(YEARLY_SUFFIX)) {
+		const tier = basePlanId.slice(0, -YEARLY_SUFFIX.length);
+		if (tier && tier !== TRIAL_PLAN && has(tier)) return tier;
+	}
+	return null;
+}
+
+/** "pro-yillik" → "Pro (yıllık)"; aylık plan → paket adı. @param {string} basePlanId */
+export function basePlanName(basePlanId) {
+	if (basePlanId.endsWith(YEARLY_SUFFIX) && basePlanId.length > YEARLY_SUFFIX.length)
+		return planName(basePlanId.slice(0, -YEARLY_SUFFIX.length)) + " (yıllık)";
+	return planName(basePlanId);
+}
+
 /** Boşlukları tekleştir, kırp, Unicode NFC. */
 export function normalizeLine(s) {
 	return s.normalize("NFC").replace(/\s+/g, " ").trim();
@@ -218,6 +261,90 @@ export function normalizeLine(s) {
 export function wordCount(s) {
 	const t = s.trim();
 	return t ? t.split(/\s+/).length : 0;
+}
+
+// ---------------------------------------------------------------- satır biçimi (önbellek anahtarı, bağlam, çıkış sınırı)
+
+/** Baştaki konuşmacı etiketi: tamamı büyük harf "JOEL:" / "MARY JANE:" (en fazla 3 kelime, 2–30 karakter). */
+const SPEAKER_LABEL = /^([A-ZÀ-ÖØ-ÞİĞŞ][A-ZÀ-ÖØ-ÞİĞŞ0-9.'’-]*(?: [A-ZÀ-ÖØ-ÞİĞŞ0-9][A-ZÀ-ÖØ-ÞİĞŞ0-9.'’-]*){0,2}):\s+(?=\S)/;
+
+/**
+ * "JOEL: Get down!" → {label: "JOEL:", body: "Get down!"}. Etiket önbellek anahtarına girmez ve modele
+ * gönderilmez; çeviriye olduğu gibi geri eklenir (aynı replik farklı konuşmacıda da önbellekten gelir).
+ * @param {string} text normalizeLine'dan geçmiş satır
+ */
+export function splitSpeakerLabel(text) {
+	const m = SPEAKER_LABEL.exec(text);
+	if (!m || m[1].replace(/[^A-Za-zÀ-ÖØ-öø-ÿİığĞşŞ]/g, "").length < 2) return { label: "", body: text };
+	return { label: m[1] + ":", body: text.slice(m[0].length) };
+}
+
+/** Etiketi çeviriye geri ekler. @param {string} label @param {string} tr */
+export function attachLabel(label, tr) {
+	return label ? label + " " + tr : tr;
+}
+
+/**
+ * Önbellek anahtarı için satırın kanonik biçimi: kıvrık tırnaklar → düz, "…" → "...", uzun tireler → "-",
+ * yinelenen ?!, noktalama öncesi boşluk, sondaki tek nokta/virgül ve OCR kırıntısı (|, _, ~, •, tek tırnak…)
+ * atılır, küçük harfe çevrilir. Tamamı büyük harf satırlar ayrı tutulur (çevirileri de büyük harf olabilir).
+ * @param {string} body
+ */
+export function canonicalKeyText(body) {
+	let s = body.normalize("NFKC")
+		.replace(/[‘’‚‛′`´]/g, "'")
+		.replace(/[“”„‟″«»]/g, "\"")
+		.replace(/…/g, "...")
+		.replace(/[‐‑‒–—―]/g, "-")
+		.replace(/\s+/g, " ")
+		.trim();
+	// OCR kırıntısı: baştaki/sondaki tek başına anlamsız işaretler.
+	const NOISE = /^(?:[|¦_~•·*^=<>\\/]|\.(?!\.))$/;
+	let words = s.split(" ");
+	while (words.length > 1 && NOISE.test(words[words.length - 1])) words.pop();
+	while (words.length > 1 && NOISE.test(words[0])) words.shift();
+	s = words.join(" ")
+		.replace(/\s+([,.!?;:])/g, "$1")
+		.replace(/!{2,}/g, "!")
+		.replace(/\?{2,}/g, "?")
+		.replace(/\.{4,}/g, "...")
+		.replace(/(^|[^.])[.,]$/, "$1")
+		.trim();
+	const letters = s.replace(/[^\p{L}]/gu, "");
+	const caps = letters.length >= 2 && letters === letters.toLocaleUpperCase("en") && letters !== letters.toLocaleLowerCase("en");
+	return (caps ? "U|" : "n|") + s.toLocaleLowerCase("en");
+}
+
+const REFERENCE_WORDS = new Set(["it", "they", "he", "she", "him", "her", "this", "that", "there", "them", "his", "its", "those", "these"]);
+
+/**
+ * Önceki satırlar bu satırın çevirisine yardım eder mi? Yalnızca ≥ 6 kelimelik ve gönderme/zamir içeren
+ * (it, they, he, she, this, that, there…) ya da küçük harfle veya "and/but/so" ile başlayan satırlarda.
+ * Uygulamadaki ProRouting.wantsContext ile aynı kural.
+ * @param {string} text
+ */
+export function contextUseful(text) {
+	const t = text.trim();
+	if (wordCount(t) < CONTEXT_MIN_WORDS) return false;
+	const first = t.replace(/^[^\p{L}]+/u, "");
+	if (/^\p{Ll}/u.test(first)) return true;
+	const words = t.toLowerCase().match(/[a-z]+/g) || [];
+	if (words.length && (words[0] === "and" || words[0] === "but" || words[0] === "so")) return true;
+	return words.some((w) => REFERENCE_WORDS.has(w));
+}
+
+/**
+ * Modele gidecek bağlam: gerekmiyorsa hiç; gerekiyorsa son [USED_CONTEXT] çift, her metin [CONTEXT_CHARS] karakter.
+ * @param {string} text @param {Pair[]} context @returns {Pair[]}
+ */
+export function effectiveContext(text, context) {
+	if (!context.length || !contextUseful(text)) return [];
+	return context.slice(-USED_CONTEXT).map((p) => ({ en: p.en.slice(0, CONTEXT_CHARS), tr: p.tr.slice(0, CONTEXT_CHARS) }));
+}
+
+/** Çıkış jetonu sınırı: clamp(2 × kelime + 24, 32, 160). @param {string} text */
+export function maxOutputTokens(text) {
+	return Math.min(MAX_OUTPUT_TOKENS, Math.max(MIN_OUTPUT_TOKENS, 2 * wordCount(text) + 24));
 }
 
 /**
@@ -594,6 +721,30 @@ export async function verifyPurchase(env, purchaseToken, tokenHash, nowMs) {
 	return result;
 }
 
+// ---------------------------------------------------------------- ek paket (tüketilebilir ürün) doğrulama
+
+/**
+ * ProductPurchase yanıtını değerlendirir (saf).
+ * https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.products
+ * purchaseState: 0 Purchased, 1 Canceled (iade/iptal), 2 Pending; consumptionState: 0 tüketilmedi, 1 tüketildi;
+ * quantity yoksa 1. productId alanı yoksa yol parametresi esas alınır.
+ * @param {any} p @param {string} productId
+ * @returns {{ok: true, quantity: number} | {ok: false, code: "invalid_purchase"|"purchase_pending"}}
+ */
+export function evaluateProductPurchase(p, productId) {
+	if (!p || typeof p !== "object") return { ok: false, code: "invalid_purchase" };
+	if (typeof p.productId === "string" && p.productId && p.productId !== productId) return { ok: false, code: "invalid_purchase" };
+	if (p.purchaseState === 2) return { ok: false, code: "purchase_pending" };
+	if (p.purchaseState !== 0) return { ok: false, code: "invalid_purchase" };
+	// Uygulama yalnızca sunucu kredilendirdikten sonra tüketir: kaydı olmayan tüketilmiş jeton geçersizdir.
+	if (p.consumptionState !== 0) return { ok: false, code: "invalid_purchase" };
+	const q = Number.isInteger(p.quantity) ? p.quantity : 1;
+	return { ok: true, quantity: Math.min(10, Math.max(1, q)) };
+}
+
+/** Aynı isolate içinde aynı jetonun eşzamanlı ikinci kez kredilenmesini önler. @type {Set<string>} */
+const topupInflight = new Set();
+
 // ---------------------------------------------------------------- kota (KV, sonunda tutarlı)
 
 /** İsolate içi bekleyen artışlar: KV aynı anahtara saniyede 1 yazmaya izin verir. */
@@ -655,9 +806,39 @@ export function incrementQuota(env, bucket, nowMs, trial = false) {
 	return { used, flush };
 }
 
-/** @param {number} used @param {number} limit @param {number} resetAt @returns {Quota} */
-function quotaObj(used, limit, resetAt) {
-	return { used, limit, resetAt };
+/**
+ * Ek paket (ek_satir_2000) kredisi: q:<kova>:YYYY-MM:bonus (denemede q:<kova>:trial:bonus). Yalnızca o kota
+ * döneminde geçerlidir; ay değişince yeni anahtar = 0.
+ * @param {string} bucket @param {number} nowMs @param {boolean} [trial]
+ */
+export function bonusKey(bucket, nowMs, trial = false) {
+	return quotaKey(bucket, nowMs, trial) + ":bonus";
+}
+
+/** @param {Env} env @param {string} bucket @param {number} nowMs @param {boolean} [trial] */
+export async function readBonus(env, bucket, nowMs, trial = false) {
+	try { return Math.max(0, Number.parseInt((await env.ALTYAZI_KV.get(bonusKey(bucket, nowMs, trial))) || "0", 10) || 0); } catch { return 0; }
+}
+
+/** Krediyi ekler (oku-yaz; ek paket alımı seyrek). Yeni toplam. @param {Env} env @param {string} bucket @param {number} nowMs @param {boolean} trial @param {number} lines */
+export async function addBonus(env, bucket, nowMs, trial, lines) {
+	const next = (await readBonus(env, bucket, nowMs, trial)) + lines;
+	await env.ALTYAZI_KV.put(bonusKey(bucket, nowMs, trial), String(next), { expirationTtl: trial ? TRIAL_QUOTA_TTL_S : 62 * 24 * 3600 });
+	return next;
+}
+
+/**
+ * Ek paket kredisi yalnızca kullanım sınırın %80'ine yaklaşınca okunur (ek paket ancak o noktada sunulur);
+ * böylece olağan isteklerde fazladan KV okuması olmaz.
+ * @param {number} used @param {number} cap
+ */
+export function needsBonus(used, cap) {
+	return used >= Math.floor(cap * 0.8);
+}
+
+/** @param {number} used @param {number} cap @param {number} resetAt @param {number} [bonus] @returns {Quota} */
+function quotaObj(used, cap, resetAt, bonus = 0) {
+	return bonus > 0 ? { used, limit: cap + bonus, resetAt, bonus } : { used, limit: cap, resetAt };
 }
 
 /**
@@ -677,7 +858,8 @@ export function quotaExceededMessage(limits, plan, limit, resetAt) {
 		return `Ücretsiz denemenin ${fmtCount(limit)} satırlık çeviri hakkı doldu. Deneme ${fmtDate(resetAt)} tarihinde bitince paketinizin aylık hakkı başlar.`;
 	const up = nextPlan(limits, plan);
 	return `${planName(plan)} paketinin bu ayki ${fmtCount(limit)} satırlık çeviri hakkı doldu. Hak ${fmtDate(resetAt)} tarihinde yenilenir.` +
-		(up ? ` Daha fazlası için ${planName(up)} paketine geçebilirsiniz.` : "");
+		(up ? ` Daha fazlası için ${planName(up)} paketine geçebilirsiniz.` : "") +
+		` İsterseniz ay sonuna kadar geçerli ${fmtCount(TOPUP_LINES)} satırlık ek paket de alabilirsiniz.`;
 }
 
 // ---------------------------------------------------------------- Gemini
@@ -695,7 +877,7 @@ export function thinkingConfig(model) {
 /** @param {string} text @param {Pair[]} context @param {string|null} speaker */
 export function userPrompt(text, context, speaker) {
 	let s = "";
-	const ctx = context.slice(-MAX_CONTEXT);
+	const ctx = context.slice(-USED_CONTEXT);
 	if (ctx.length) {
 		s += "Previous lines (context only):\n";
 		for (const p of ctx) s += "EN: " + p.en + "\nTR: " + p.tr + "\n";
@@ -705,10 +887,13 @@ export function userPrompt(text, context, speaker) {
 	return s + "LINE: " + text;
 }
 
-/** @param {string} model @param {string} text @param {Pair[]} context @param {string|null} speaker @param {boolean} withThinking */
-export function geminiBody(model, text, context, speaker, withThinking) {
+/**
+ * @param {string} model @param {string} text @param {Pair[]} context @param {string|null} speaker @param {boolean} withThinking
+ * @param {number} [maxTokens] varsayılan: maxOutputTokens(text)
+ */
+export function geminiBody(model, text, context, speaker, withThinking, maxTokens) {
 	/** @type {any} */
-	const gc = { maxOutputTokens: MAX_OUTPUT_TOKENS, candidateCount: 1 };
+	const gc = { maxOutputTokens: maxTokens ?? maxOutputTokens(text), candidateCount: 1 };
 	const t = withThinking ? thinkingConfig(model) : null;
 	if (t) gc.thinkingConfig = t;
 	return JSON.stringify({
@@ -742,7 +927,7 @@ export function cleanOutput(raw) {
 /**
  * Yanıt (ya da SSE parçası) içindeki düşünce olmayan metin.
  * @param {any} r
- * @returns {{text: string, blocked?: string, error?: string}}
+ * @returns {{text: string, blocked?: string, error?: string, finish?: string}}
  */
 export function extractText(r) {
 	if (!r || typeof r !== "object") return { text: "", error: "bad_json" };
@@ -755,7 +940,7 @@ export function extractText(r) {
 	const parts = c.content && Array.isArray(c.content.parts) ? c.content.parts : [];
 	let t = "";
 	for (const p of parts) if (p && p.thought !== true && typeof p.text === "string") t += p.text;
-	return { text: t };
+	return typeof c.finishReason === "string" ? { text: t, finish: c.finishReason } : { text: t };
 }
 
 /**
@@ -808,17 +993,18 @@ const noThinking = new Set();
 /**
  * Gemini'ye istek; thinkingConfig reddedilirse onsuz bir kez daha dener.
  * @param {Env} env @param {string} model @param {boolean} stream @param {string} text @param {Pair[]} context @param {string|null} speaker @param {AbortSignal} signal
+ * @param {number} [maxTokens]
  */
-export async function callGemini(env, model, stream, text, context, speaker, signal) {
+export async function callGemini(env, model, stream, text, context, speaker, signal, maxTokens) {
 	const url = GEMINI_BASE + encodeURIComponent(model) + (stream ? ":streamGenerateContent?alt=sse" : ":generateContent");
 	const headers = { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY || "" };
 	const withT = !noThinking.has(model);
-	let res = await fetch(url, { method: "POST", headers, body: geminiBody(model, text, context, speaker, withT), signal });
+	let res = await fetch(url, { method: "POST", headers, body: geminiBody(model, text, context, speaker, withT, maxTokens), signal });
 	if (res.status === 400 && withT && thinkingConfig(model)) {
 		const body = await res.text();
 		if (/thinking/i.test(body)) {
 			noThinking.add(model);
-			res = await fetch(url, { method: "POST", headers, body: geminiBody(model, text, context, speaker, false), signal });
+			res = await fetch(url, { method: "POST", headers, body: geminiBody(model, text, context, speaker, false, maxTokens), signal });
 		} else {
 			return new Response(body, { status: 400 });
 		}
@@ -868,17 +1054,85 @@ function sseData(ev) {
 // ---------------------------------------------------------------- çeviri önbelleği
 
 /**
- * Önbellek anahtarı. Kısa satırlar (≤ 6 kelime: menü/arayüz/kısa replikler) ve bağlamsız satırlar yalnızca
- * metne göre; uzun satırlar son bağlam çiftinin özetini de içerir (aynı cümle farklı sahnede farklı çevrilebilir).
- * @param {string} model @param {string} text @param {Pair[]} context @param {string|null} speaker
+ * Önbellek anahtarı (v2). Satır kanonik biçimiyle ([canonicalKeyText]: büyük/küçük harf, tırnak, üç nokta,
+ * boşluk, OCR kırıntısı farkları aynı anahtara düşer; konuşmacı etiketi önceden ayrılmıştır). Bağlam yalnızca
+ * modele gerçekten gittiyse ([effectiveContext]) son çiftiyle anahtara girer.
+ * @param {string} model @param {string} text etiketsiz satır @param {Pair[]} context etkin bağlam @param {string|null} speaker
  */
 export async function cacheKey(model, text, context, speaker) {
-	let material = "v1\n" + model + "\n" + (speaker || "") + "\n" + text;
-	if (context.length && wordCount(text) > SHORT_LINE_WORDS) {
+	let material = "v2\n" + model + "\n" + (speaker || "") + "\n" + canonicalKeyText(text);
+	if (context.length) {
 		const last = context[context.length - 1];
-		material += "\n" + last.en + "\n" + last.tr;
+		material += "\n" + canonicalKeyText(last.en) + "\n" + last.tr;
 	}
-	return "tr:v1:" + (await sha256Hex(material));
+	return "tr:v2:" + (await sha256Hex(material));
+}
+
+/** İsolate içi LRU (anahtar → çeviri): sıcak satırlar KV'ye gitmeden döner. */
+/** @type {Map<string, string>} */
+const lru = new Map();
+
+/** @param {string} k */
+export function lruGet(k) {
+	const v = lru.get(k);
+	if (v === undefined) return null;
+	lru.delete(k);
+	lru.set(k, v);
+	return v;
+}
+
+/** @param {string} k @param {string} v */
+export function lruPut(k, v) {
+	lru.delete(k);
+	lru.set(k, v);
+	while (lru.size > LRU_MAX) lru.delete(/** @type {string} */ (lru.keys().next().value));
+}
+
+// ---------------------------------------------------------------- önbellek ölçümü (metin yok, yalnızca sayılar)
+
+/** @type {{day: string, mem: number, kv: number, miss: number, lastFlush: number}} */
+let stats = { day: "", mem: 0, kv: 0, miss: 0, lastFlush: 0 };
+
+/** "YYYY-MM-DD" (UTC) */
+export function dayKey(nowMs) {
+	return new Date(nowMs).toISOString().slice(0, 10);
+}
+
+/**
+ * Bir önbellek sonucu sayar: "mem" (isolate LRU), "kv" (KV), "miss" (Gemini'ye gitti).
+ * Günlük toplam KV'de st:YYYY-MM-DD = {"mem":..,"kv":..,"miss":..}; en fazla dakikada bir (isolate başına) yazılır.
+ * @param {Env} env @param {Ctx} ctx @param {"mem"|"kv"|"miss"} kind @param {number} nowMs
+ */
+export function countCache(env, ctx, kind, nowMs) {
+	const day = dayKey(nowMs);
+	if (stats.day !== day) {
+		if (stats.day && stats.mem + stats.kv + stats.miss > 0) ctx.waitUntil(flushStats(env, { ...stats }));
+		stats = { day, mem: 0, kv: 0, miss: 0, lastFlush: nowMs };
+	}
+	stats[kind]++;
+	if (nowMs - stats.lastFlush >= STATS_FLUSH_MS) {
+		const snap = { ...stats };
+		stats.mem = 0; stats.kv = 0; stats.miss = 0; stats.lastFlush = nowMs;
+		ctx.waitUntil(flushStats(env, snap));
+	}
+}
+
+/** @param {Env} env @param {{day: string, mem: number, kv: number, miss: number}} snap */
+async function flushStats(env, snap) {
+	const key = "st:" + snap.day;
+	try {
+		let cur = { mem: 0, kv: 0, miss: 0 };
+		try { cur = { ...cur, ...JSON.parse((await env.ALTYAZI_KV.get(key)) || "{}") }; } catch {}
+		const next = { mem: (cur.mem | 0) + snap.mem, kv: (cur.kv | 0) + snap.kv, miss: (cur.miss | 0) + snap.miss };
+		await env.ALTYAZI_KV.put(key, JSON.stringify(next), { expirationTtl: 400 * 24 * 3600 });
+	} catch {}
+}
+
+/** Testler için: bekleyen sayaçları hemen yazar. @param {Env} env */
+export async function _flushStats(env) {
+	const snap = { ...stats };
+	stats.mem = 0; stats.kv = 0; stats.miss = 0;
+	if (snap.day) await flushStats(env, snap);
 }
 
 // ---------------------------------------------------------------- yol işleyicileri
@@ -894,22 +1148,24 @@ async function handleSession(request, env, now) {
 	const r = await verifyPurchase(env, v.purchaseToken, tokenHash, now);
 	if (r.state === "invalid") throw new HttpError(400, "invalid_purchase");
 	if (r.state !== "active") throw new HttpError(403, "not_subscribed");
-	// Paket: temel plan kimliği PLAN_LIMITS'te olmalı (bilinmeyen plan → invalid_purchase).
+	// Paket: temel plan kimliği (veya yıllık "<paket>-yillik" ise paketi) PLAN_LIMITS'te olmalı (bilinmeyen plan → invalid_purchase).
 	const limits = planLimits(env);
 	const basePlan = r.basePlanId;
-	if (!basePlan || basePlan === TRIAL_PLAN || !Object.prototype.hasOwnProperty.call(limits, basePlan)) throw new HttpError(400, "invalid_purchase");
+	const tier = resolvePlan(limits, basePlan);
+	if (!tier) throw new HttpError(400, "invalid_purchase");
 	const trial = r.trial === true;
-	const plan = trial ? TRIAL_PLAN : basePlan;
+	const plan = trial ? TRIAL_PLAN : tier;
 	const limit = limits[plan];
 	const sub = tokenHash.slice(0, 32);
 	const bucket = typeof r.bucket === "string" && /^[0-9a-f]{32}$/.test(r.bucket) ? r.bucket : sub;
 	const exp = Math.min(now + SESSION_TTL_MS, r.expiryMs);
 	const sessionToken = await signSession(env.SESSION_SECRET, sub, exp, plan, bucket, trial ? r.expiryMs : undefined);
 	const used = await readQuotaUsed(env, bucket, now, trial);
+	const bonus = await readBonus(env, bucket, now, trial);
 	return json(200, {
 		ok: true, sessionToken, expiresAt: exp,
-		plan, planName: planName(plan), basePlan, basePlanName: planName(basePlan), trial,
-		quota: quotaObj(used, limit, quotaResetAt(trial, r.expiryMs, now)),
+		plan, planName: planName(plan), basePlan, basePlanName: basePlanName(basePlan), trial,
+		quota: quotaObj(used, limit, quotaResetAt(trial, r.expiryMs, now), bonus),
 	});
 }
 
@@ -930,39 +1186,51 @@ async function handleTranslate(request, env, ctx, now) {
 	const limits = planLimits(env);
 	// Paket sonradan PLAN_LIMITS'ten kaldırıldıysa yeni oturum açılsın (orada invalid_purchase döner).
 	if (!Object.prototype.hasOwnProperty.call(limits, sess.plan)) throw new HttpError(401, "unauthorized");
-	const limit = limits[sess.plan];
+	const cap = limits[sess.plan];
 	const trial = sess.plan === TRIAL_PLAN;
 	const resetAt = quotaResetAt(trial, sess.te, now);
 
-	const ck = await cacheKey(model, v.text, v.context, v.speaker);
+	// Konuşmacı etiketi ayrılır (anahtara ve modele girmez, sonuca geri eklenir); bağlam yalnızca gerekiyorsa.
+	const { label, body } = splitSpeakerLabel(v.text);
+	const context = effectiveContext(body, v.context);
+	const ck = await cacheKey(model, body, context, v.speaker);
 	/** @type {string|null} */
-	let hit = null;
-	try { hit = await env.ALTYAZI_KV.get(ck, { cacheTtl: 3600 }); } catch {}
+	let hit = lruGet(ck);
+	if (hit) countCache(env, ctx, "mem", now);
+	else {
+		try { hit = await env.ALTYAZI_KV.get(ck, { cacheTtl: 3600 }); } catch {}
+		if (hit) { lruPut(ck, hit); countCache(env, ctx, "kv", now); }
+	}
 	const usedBefore = await readQuotaUsed(env, sess.qb, now, trial);
+	const bonus = needsBonus(usedBefore, cap) ? await readBonus(env, sess.qb, now, trial) : 0;
+	const limit = cap + bonus;
 	if (hit) {
-		const q = quotaObj(usedBefore, limit, resetAt);
-		if (streaming) return ndjson([{ done: true, text: hit, quota: q, cached: true }]);
-		return json(200, { ok: true, text: hit, quota: q, cached: true });
+		const q = quotaObj(usedBefore, cap, resetAt, bonus);
+		const text = attachLabel(label, hit);
+		if (streaming) return ndjson([{ done: true, text, quota: q, cached: true }]);
+		return json(200, { ok: true, text, quota: q, cached: true });
 	}
 	if (usedBefore >= limit) throw new HttpError(429, "quota_exceeded", quotaExceededMessage(limits, sess.plan, limit, resetAt));
 	if (!env.GEMINI_API_KEY) throw new HttpError(502, "upstream_error");
+	countCache(env, ctx, "miss", now);
 
 	const timeoutMs = intEnv(env.UPSTREAM_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 50, 30_000);
 	const ac = new AbortController();
 	const timer = setTimeout(() => ac.abort(new Error("timeout")), timeoutMs);
 
-	/** Başarılı çeviriyi önbelleğe yaz + kotayı say. */
+	/** Başarılı çeviriyi (etiketsiz) önbelleğe yaz + kotayı say. */
 	const commit = (/** @type {string} */ text) => {
+		lruPut(ck, text);
 		const inc = incrementQuota(env, sess.qb, now, trial);
 		const tasks = [env.ALTYAZI_KV.put(ck, text, { expirationTtl: TR_CACHE_TTL_S }).catch(() => {})];
 		if (inc.flush) tasks.push(inc.flush);
 		ctx.waitUntil(Promise.all(tasks));
-		return quotaObj(inc.used, limit, resetAt);
+		return quotaObj(inc.used, cap, resetAt, bonus);
 	};
 
 	let res;
 	try {
-		res = await callGemini(env, model, streaming, v.text, v.context, v.speaker, ac.signal);
+		res = await callGemini(env, model, streaming, body, context, v.speaker, ac.signal);
 	} catch {
 		clearTimeout(timer);
 		throw new HttpError(502, "upstream_error");
@@ -975,10 +1243,17 @@ async function handleTranslate(request, env, ctx, now) {
 
 	if (!streaming) {
 		try {
-			const r = extractText(await res.json());
+			let r = extractText(await res.json());
+			if (r.finish === "MAX_TOKENS") {
+				// Çıkış sınırı kısa geldi (nadir): yarım çeviri gösterilmez, bir kez geniş sınırla denenir.
+				const again = await callGemini(env, model, false, body, context, v.speaker, ac.signal, RETRY_OUTPUT_TOKENS);
+				if (again.status !== 200) throw new Error("upstream");
+				r = extractText(await again.json());
+				if (r.finish === "MAX_TOKENS") throw new Error("truncated");
+			}
 			const text = cleanOutput(r.text);
 			if (!text) throw new Error("empty");
-			return json(200, { ok: true, text, quota: commit(text), cached: false });
+			return json(200, { ok: true, text: attachLabel(label, text), quota: commit(text), cached: false });
 		} catch {
 			throw new HttpError(502, "upstream_error");
 		} finally {
@@ -995,9 +1270,12 @@ async function handleTranslate(request, env, ctx, now) {
 		const cleaner = new StreamCleaner();
 		let raw = "";
 		try {
+			if (label) await line({ d: label + " " });
 			for await (const ev of parseSse(upstream)) {
 				const r = extractText(ev);
 				if (r.error || r.blocked) throw new Error("upstream");
+				// Çıkış sınırında kesildi: yarım çeviri son metin sayılmaz (uygulama cihaz içi çeviriye döner, satır sayılmaz).
+				if (r.finish === "MAX_TOKENS") throw new Error("truncated");
 				if (!r.text) continue;
 				raw += r.text;
 				const d = cleaner.push(r.text);
@@ -1008,7 +1286,7 @@ async function handleTranslate(request, env, ctx, now) {
 			const text = cleanOutput(raw);
 			if (!text) throw new Error("empty");
 			clearTimeout(timer);
-			await line({ done: true, text, quota: commit(text), cached: false });
+			await line({ done: true, text: attachLabel(label, text), quota: commit(text), cached: false });
 		} catch {
 			clearTimeout(timer);
 			ac.abort();
@@ -1022,6 +1300,70 @@ async function handleTranslate(request, env, ctx, now) {
 		status: 200,
 		headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" },
 	});
+}
+
+/**
+ * POST /v1/topup — ek satır paketi (ek_satir_2000). Oturum jetonu kotanın kovasını belirler; satın alma
+ * purchases.products.get ile doğrulanır ve jeton özeti (tu:<sha256>) kaydedilerek yalnızca bir kez kredilenir.
+ * Aynı jeton tekrar gelirse 200 + alreadyCredited (uygulama tüketmeyi yeniden deneyebilsin).
+ * @param {Request} request @param {Env} env @param {number} now
+ */
+async function handleTopup(request, env, now) {
+	const auth = request.headers.get("authorization") || "";
+	const m = /^Bearer ([A-Za-z0-9_.-]{1,512})$/.exec(auth);
+	if (!m || !env.SESSION_SECRET) throw new HttpError(401, "unauthorized");
+	const sess = await verifySession(env.SESSION_SECRET, m[1], now);
+	if (!sess) throw new HttpError(401, "unauthorized");
+	const b = await readJsonBody(request);
+	if (typeof b.packageName !== "string" || typeof b.productId !== "string" || typeof b.purchaseToken !== "string")
+		throw new HttpError(400, "bad_request");
+	if (b.packageName !== PACKAGE_NAME || b.productId !== TOPUP_PRODUCT_ID) throw new HttpError(400, "invalid_purchase");
+	if (b.purchaseToken.length < 10 || b.purchaseToken.length > 1024 || !/^[A-Za-z0-9._:-]+$/.test(b.purchaseToken))
+		throw new HttpError(400, "invalid_purchase");
+	const limits = planLimits(env);
+	if (!Object.prototype.hasOwnProperty.call(limits, sess.plan)) throw new HttpError(401, "unauthorized");
+	const cap = limits[sess.plan];
+	const trial = sess.plan === TRIAL_PLAN;
+	const resetAt = quotaResetAt(trial, sess.te, now);
+	const th = await sha256Hex(b.purchaseToken);
+	const rk = "tu:" + th;
+	const done = async (/** @type {number} */ credited, /** @type {boolean} */ already) => {
+		const used = await readQuotaUsed(env, sess.qb, now, trial);
+		const bonus = await readBonus(env, sess.qb, now, trial);
+		return json(200, { ok: true, credited, alreadyCredited: already, quota: quotaObj(used, cap, resetAt, bonus) });
+	};
+	let prev = null;
+	try { prev = await env.ALTYAZI_KV.get(rk); } catch {}
+	if (prev || topupInflight.has(th)) return done(0, true);
+	// Hız sınırı yalnızca Google'a gidilecekse (abone başına ~6 ardışık, sonra 5 sn'de bir).
+	if (!rateLimit("u:" + sess.sub, 6, 0.2, now)) throw new HttpError(429, "rate_limited");
+	topupInflight.add(th);
+	try {
+		const at = await getGoogleAccessToken(env, now);
+		const url = PLAY_BASE + encodeURIComponent(PACKAGE_NAME) + "/purchases/products/" + encodeURIComponent(TOPUP_PRODUCT_ID) +
+			"/tokens/" + encodeURIComponent(b.purchaseToken);
+		const res = await fetch(url, { headers: { authorization: "Bearer " + at } });
+		if (res.status === 400 || res.status === 404 || res.status === 410) throw new HttpError(400, "invalid_purchase");
+		if (res.status !== 200) {
+			if (res.status === 401) gTokenMem = null;
+			throw new HttpError(502, "server_error");
+		}
+		const ev = evaluateProductPurchase(await res.json(), TOPUP_PRODUCT_ID);
+		if (!ev.ok) throw new HttpError(ev.code === "purchase_pending" ? 409 : 400, ev.code);
+		const credited = TOPUP_LINES * ev.quantity;
+		// Önce kredi, sonra kayıt: kayıt yazılamazsa en kötü ihtimalle kullanıcı lehine.
+		try {
+			await addBonus(env, sess.qb, now, trial, credited);
+		} catch {
+			throw new HttpError(502, "server_error");
+		}
+		try {
+			await env.ALTYAZI_KV.put(rk, JSON.stringify({ b: sess.qb, k: quotaKey(sess.qb, now, trial), n: credited, at: now }), { expirationTtl: TOPUP_RECORD_TTL_S });
+		} catch {}
+		return done(credited, false);
+	} finally {
+		topupInflight.delete(th);
+	}
 }
 
 /** @param {any[]} objs */
@@ -1053,6 +1395,7 @@ export async function handle(request, env, ctx) {
 		else if (path === "/v1/health") res = request.method === "GET" || request.method === "HEAD" ? json(200, { ok: true, version: API_VERSION }) : fail(405, "method_not_allowed");
 		else if (path === "/v1/session") res = request.method === "POST" ? await handleSession(request, env, t0) : fail(405, "method_not_allowed");
 		else if (path === "/v1/translate") res = request.method === "POST" ? await handleTranslate(request, env, ctx, t0) : fail(405, "method_not_allowed");
+		else if (path === "/v1/topup") res = request.method === "POST" ? await handleTopup(request, env, t0) : fail(405, "method_not_allowed");
 		else res = fail(404, "not_found");
 	} catch (e) {
 		if (e instanceof HttpError) {
@@ -1073,6 +1416,9 @@ export function _resetState() {
 	buckets.clear();
 	quotaMem.clear();
 	noThinking.clear();
+	lru.clear();
+	topupInflight.clear();
+	stats = { day: "", mem: 0, kv: 0, miss: 0, lastFlush: 0 };
 	limitsMem = null;
 	gTokenMem = null;
 	rsaKeyMem = null;

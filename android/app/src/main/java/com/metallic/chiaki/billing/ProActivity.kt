@@ -37,7 +37,9 @@ import kotlinx.coroutines.withContext
  * oynuyorsun?" yardımcısı, mevcut paket ve bu dönemin kotası. Fiyat ve deneme teklifi Google Play'den
  * (ProductDetails) gelir; mevcut paket ve kota sunucudan (/v1/session) okunur, çünkü Play'in Purchase nesnesi
  * temel planı içermez. Abonelik koşulları ve gizlilik politikası bağlantısı Play politikası gereği ekranda yazılıdır.
- * İlk odak önerilen ("En çok tercih edilen") karttadır.
+ * İlk odak önerilen ("En çok tercih edilen") karttadır. Üstte Aylık / Yıllık seçimi: yıllık kartlarda Play fiyatından
+ * hesaplanan "x ay bedava" yazar. Kullanım %80'i geçince (ücretli pakette) tek seferlik ek paket düğmesi görünür;
+ * ek paket hiçbir zaman kendiliğinden veya oyun sırasında önerilmez.
  */
 class ProActivity: AppCompatActivity()
 {
@@ -52,6 +54,10 @@ class ProActivity: AppCompatActivity()
 	private lateinit var store: ProStore
 	private lateinit var cards: List<Pair<PlanSpec, ItemPlanCardBinding>>
 	private lateinit var habits: List<Pair<PlayHabit, TextView>>
+	private lateinit var periods: List<Pair<BillingPeriod, TextView>>
+	/** Kartlarda gösterilen ödeme dönemi; kullanıcı seçmediyse mevcut paketin dönemi. */
+	private var period = BillingPeriod.MONTHLY
+	private var periodChosen = false
 	private var state: BillingRepository.State = BillingRepository.State.Loading
 	/** "Ne kadar oynuyorsun?" ile vurgulanan paket. */
 	private var highlightedPlan: String? = null
@@ -86,6 +92,19 @@ class ProActivity: AppCompatActivity()
 			HomeFocus.applyScale(card.root, 1.03f)
 			card.root.setOnClickListener { onPlanClicked(spec) }
 		}
+		periods = listOf(
+			BillingPeriod.MONTHLY to binding.periodMonthlyButton,
+			BillingPeriod.YEARLY to binding.periodYearlyButton
+		)
+		for((p, view) in periods)
+		{
+			HomeFocus.applyScale(view, 1.06f)
+			view.setOnClickListener {
+				period = p
+				periodChosen = true
+				render()
+			}
+		}
 		for((habit, view) in habits)
 		{
 			HomeFocus.applyScale(view, 1.06f)
@@ -98,6 +117,8 @@ class ProActivity: AppCompatActivity()
 		HomeFocus.applyScale(binding.useEngineButton, 1.04f)
 		HomeFocus.applyScale(binding.manageButton, 1.04f)
 		HomeFocus.applyScale(binding.privacyButton, 1.06f)
+		HomeFocus.applyScale(binding.topupButton, 1.04f)
+		binding.topupButton.setOnClickListener { billing.launchTopup(this) }
 
 		binding.useEngineButton.setOnClickListener { useSubscriptionEngine() }
 		binding.manageButton.setOnClickListener { openUrl(ProProduct.MANAGE_URL, isPlay = true) }
@@ -106,6 +127,7 @@ class ProActivity: AppCompatActivity()
 		lifecycleScope.launch {
 			repeatOnLifecycle(Lifecycle.State.STARTED) {
 				launch { billing.state.collect { state = it; render() } }
+				launch { billing.topup.collect { render() } }
 				launch { billing.messages.collect { toast(it) } }
 			}
 		}
@@ -139,6 +161,7 @@ class ProActivity: AppCompatActivity()
 
 	private fun onPlanClicked(spec: PlanSpec)
 	{
+		val target = Plans.basePlanId(spec, period)
 		val configured = ProTranslator.isConfigured
 		when(val s = state)
 		{
@@ -147,20 +170,20 @@ class ProActivity: AppCompatActivity()
 				s.pending -> toast(getString(R.string.pro_pending_body))
 				// Sunucu adresi olmadan satış yapılmaz.
 				!configured -> toast(getString(R.string.pro_not_ready))
-				else -> billing.launchPurchase(this, spec.id, null)
+				else -> billing.launchPurchase(this, target, null)
 			}
 			is BillingRepository.State.Subscribed ->
 			{
 				val current = currentPlan()
 				when
 				{
-					PlanChanges.of(true, current, spec.id) == PlanChange.SAME ->
+					PlanChanges.of(true, current, target) == PlanChange.SAME ->
 						if(configured && preferences.translationEngineChoice != TranslationSettings.ENGINE_PRO)
 							useSubscriptionEngine()
 						else
 							toast(BillingLogic.MSG_SAME_PLAN)
 					!configured -> toast(getString(R.string.pro_not_ready))
-					else -> billing.launchPurchase(this, spec.id, current)
+					else -> billing.launchPurchase(this, target, current)
 				}
 			}
 			is BillingRepository.State.NotConfigured ->
@@ -189,12 +212,23 @@ class ProActivity: AppCompatActivity()
 		val subscribed = s as? BillingRepository.State.Subscribed
 		val plan = if(subscribed != null) store.plan else null
 		val current = plan?.basePlan
-		val offers: List<PlanOffer>? = when(s)
+		if(!periodChosen && current != null)
+			period = Plans.periodOf(current)
+		for((p, view) in periods)
+			view.isSelected = p == period
+		val monthlyOffers: List<PlanOffer>? = when(s)
 		{
 			is BillingRepository.State.NotSubscribed -> s.plans
 			is BillingRepository.State.Subscribed -> s.plans
 			else -> null
 		}
+		val yearlyOffers: List<PlanOffer>? = when(s)
+		{
+			is BillingRepository.State.NotSubscribed -> s.yearlyPlans
+			is BillingRepository.State.Subscribed -> s.yearlyPlans
+			else -> null
+		}
+		val offers = if(period == BillingPeriod.YEARLY) yearlyOffers else monthlyOffers
 
 		when(s)
 		{
@@ -210,7 +244,12 @@ class ProActivity: AppCompatActivity()
 		}
 
 		for((spec, card) in cards)
-			renderCard(spec, card, s, offers?.firstOrNull { it.spec.id == spec.id }?.choice, subscribed != null, current, configured)
+		{
+			val choice = offers?.firstOrNull { it.spec.id == spec.id }?.choice
+			val savings = if(period == BillingPeriod.YEARLY)
+				YearlySavings.label(monthlyOffers?.firstOrNull { it.spec.id == spec.id }?.choice?.price, choice?.price) else null
+			renderCard(spec, card, s, choice, subscribed != null, current, configured, savings)
+		}
 
 		showDetail(when(s)
 		{
@@ -226,7 +265,12 @@ class ProActivity: AppCompatActivity()
 			}
 			is BillingRepository.State.Subscribed ->
 			{
-				val renew = getString(if(s.autoRenewing) R.string.pro_renewing else R.string.pro_not_renewing)
+				val renew = getString(when
+				{
+					!s.autoRenewing -> R.string.pro_not_renewing
+					Plans.periodOf(current) == BillingPeriod.YEARLY -> R.string.pro_renewing_yearly
+					else -> R.string.pro_renewing
+				})
 				val trial = if(plan?.trial == true) " " + getString(R.string.pro_trial_note, PriceText.count(Plans.TRIAL_LINES)) else ""
 				val engine = if(configured)
 					getString(if(preferences.translationEngine == TranslationSettings.ENGINE_PRO) R.string.pro_engine_in_use else R.string.pro_engine_other)
@@ -249,12 +293,13 @@ class ProActivity: AppCompatActivity()
 	}
 
 	private fun renderCard(spec: PlanSpec, card: ItemPlanCardBinding, s: BillingRepository.State, choice: OfferChoice?,
-		subscribed: Boolean, current: String?, configured: Boolean)
+		subscribed: Boolean, current: String?, configured: Boolean, savings: String?)
 	{
-		val change = PlanChanges.of(subscribed, current, spec.id)
+		val change = PlanChanges.of(subscribed, current, Plans.basePlanId(spec, period))
 		val price = PriceText.priceLine(choice?.price)
 			?: getString(if(s == BillingRepository.State.Loading) R.string.pro_plan_price_loading else R.string.pro_plan_price_unknown)
-		val trial = if(s is BillingRepository.State.NotSubscribed && !s.pending) PlanText.trial(choice) else null
+		val trialOffer = if(s is BillingRepository.State.NotSubscribed && !s.pending) PlanText.trial(choice) else null
+		val trial = listOfNotNull(trialOffer, savings).joinToString(" · ").ifEmpty { null }
 		val action = when
 		{
 			s == BillingRepository.State.Loading -> ""
@@ -295,7 +340,7 @@ class ProActivity: AppCompatActivity()
 		ImageViewCompat.setImageTintList(binding.statusDotImageView, ContextCompat.getColorStateList(this, color))
 	}
 
-	/** "Bu ay: 3.120 / 11.000 satır, yenilenme: 1 Kasım" + çubuk. */
+	/** "Bu ay: 3.120 / 10.000 satır, yenilenme: 1 Kasım" + çubuk. */
 	private fun renderQuota(subscribed: Boolean)
 	{
 		val b = binding
@@ -321,6 +366,18 @@ class ProActivity: AppCompatActivity()
 		b.quotaProgressBar.isVisible = q != null
 		if(q != null)
 			b.quotaProgressBar.progress = PriceText.quotaPermille(q.used, q.limit)
+		// Ek paket: yalnızca ücretli pakette ve kullanım ≥ %80 iken, kullanıcı isterse.
+		val now = System.currentTimeMillis()
+		val offer = billing.topup.value
+		val showTopup = q != null && offer != null && ProTranslator.isConfigured &&
+				TopUp.shouldOffer(subscribed, trial, q.used, q.limit, q.resetAt, now)
+		b.topupButton.isVisible = showTopup
+		b.topupNoteTextView.isVisible = showTopup
+		if(showTopup && q != null)
+		{
+			b.topupButton.text = TopUp.buttonLabel(offer)
+			b.topupNoteTextView.text = TopUp.note(q.resetAt, now)
+		}
 	}
 
 	/** Ekran açılınca (ve paket değişince) bir kez: yeni oturum açıp paketi ve kotayı alır. */

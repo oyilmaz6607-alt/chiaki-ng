@@ -7,6 +7,10 @@
     <string name="pro_brand">AltyazıTR Abonelik</string>
     <string name="pro_subhead">Yapay zekâ ile doğal Türkçe altyazı · oyun saatine göre paket seçin · Google Play ile güvenli ödeme</string>
 
+    <string name="pro_period_question">Ödeme:</string>
+    <string name="pro_period_monthly">Aylık</string>
+    <string name="pro_period_yearly">Yıllık</string>
+
     <string name="pro_habit_question">Ne kadar oynuyorsun?</string>
     <string name="pro_habit_few">Haftada birkaç saat</string>
     <string name="pro_habit_evenings">Hemen her akşam</string>
@@ -26,6 +30,7 @@
     <string name="pro_status_pending">Ödeme onay bekliyor</string>
     <string name="pro_status_loading">Google Play\'e bağlanılıyor…</string>
     <string name="pro_renewing">Her ay otomatik yenilenir.</string>
+    <string name="pro_renewing_yearly">Her yıl otomatik yenilenir; satır hakkı her ay yenilenir.</string>
     <string name="pro_not_renewing">Otomatik yenileme kapalı: abonelik dönem sonunda biter.</string>
     <string name="pro_trial_note">Ücretsiz deneme sürüyor: deneme boyunca %1$s satır yapay zekâ çevirisi.</string>
     <string name="pro_pending_body">Ödemeniz onaylanınca aboneliğiniz kendiliğinden başlar. Bu birkaç dakika sürebilir.</string>
@@ -43,7 +48,7 @@
     <string name="pro_quota_loading">Bu dönemin kullanımı yükleniyor…</string>
     <string name="pro_quota_failed">Kullanım bilgisi alınamadı: %1$s</string>
 
-    <string name="pro_legal">Abonelik, iptal edilmediği sürece her ay otomatik olarak yenilenir ve seçtiğiniz paketin ücreti Google Play hesabınızdan alınır. 3 günlük ücretsiz deneme yalnızca daha önce abone olmamış hesaplar içindir; deneme bitmeden iptal ederseniz ücret alınmaz. Paket yükseltmesi hemen geçerli olur (kalan süre Google Play tarafından orantılı olarak hesaplanır); daha ucuz pakete geçiş mevcut dönemin sonunda geçerli olur. Paketin satır hakkı dolarsa dönem sonuna kadar cihaz içi çeviri kullanılır. İstediğiniz zaman Google Play → Abonelikler bölümünden (veya \"Aboneliği yönet\") iptal edebilirsiniz; iptal mevcut dönemin sonunda geçerli olur. Yapay zekâ çevirisinde yalnızca altyazı metni sunucumuza ve Google Gemini\'ye gönderilir; ayrıntılar gizlilik politikasında.</string>
+    <string name="pro_legal">Abonelik, iptal edilmediği sürece seçtiğiniz döneme göre her ay veya her yıl otomatik olarak yenilenir ve paketin ücreti Google Play hesabınızdan alınır. Yıllık planlarda da satır hakkı her ay yenilenir. 3 günlük ücretsiz deneme yalnızca daha önce abone olmamış hesaplar içindir; deneme bitmeden iptal ederseniz ücret alınmaz. Paket yükseltmesi hemen geçerli olur (kalan süre Google Play tarafından orantılı olarak hesaplanır); daha ucuz pakete geçiş mevcut dönemin sonunda geçerli olur. Paketin satır hakkı dolarsa dönem sonuna kadar cihaz içi çeviri kullanılır; isterseniz tek seferlik ek satır paketi alabilirsiniz (otomatik yenilenmez, satın alındığı ayın sonuna kadar geçerlidir). Çok kısa satırlar (1–3 kelime, arayüz yazıları) cihaz içinde çevrilir ve hakkınızdan düşmez. İstediğiniz zaman Google Play → Abonelikler bölümünden (veya \"Aboneliği yönet\") iptal edebilirsiniz; iptal mevcut dönemin sonunda geçerli olur. Yapay zekâ çevirisinde yalnızca altyazı metni sunucumuza ve Google Gemini\'ye gönderilir; ayrıntılar gizlilik politikasında.</string>
     <string name="pro_no_browser">Bu cihazda bağlantı açılamadı. Telefonunuzdan şu adrese gidin: %1$s</string>
     <string name="pro_no_play">Google Play açılamadı. Aboneliği telefonunuzdan yönetebilirsiniz: play.google.com → Ödemeler ve abonelikler.</string>
 
@@ -55,7 +60,7 @@
     <string name="preferences_pro_key" translatable="false">subtitle_pro_screen</string>
     <string name="preferences_pro_title">AltyazıTR Abonelik</string>
     <string name="preferences_pro_summary_on">Abonelik etkin · paketinizi görmek veya değiştirmek için seçin</string>
-    <string name="preferences_pro_summary_off">Standart, Pro, Premium · oyun saatine göre paket · 3 gün ücretsiz dene</string>
+    <string name="preferences_pro_summary_off">Standart, Pro, Premium · aylık veya yıllık · 3 gün ücretsiz dene</string>
     <string name="preferences_translation_engine_no_pro">%1$s — abonelik yok, %2$s kullanılıyor</string>
     <string name="preferences_translation_engine_fallback_gemini">Gemini</string>
     <string name="preferences_translation_engine_fallback_mlkit">cihaz içi çeviri</string>

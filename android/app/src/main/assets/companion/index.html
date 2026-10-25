@@ -93,6 +93,7 @@ section.panel.active { display: block; }
 .muted { color: var(--muted); }
 .small { font-size: 14px; }
 .quota-bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.15); overflow: hidden; margin-top: 8px; }
+.pro-warning { color: var(--accent); margin-top: 6px; }
 .quota-bar > span { display: block; height: 100%; width: 0; background: var(--accent); }
 .row { display: flex; align-items: center; gap: 10px; }
 
@@ -724,6 +725,7 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 				root.appendChild(el("div", { cls: "ctl", id: "pro-box" }, [
 					el("div", { cls: "ctl-head" }, [el("b", { text: "AltyazıTR Abonelik" }), el("span", { cls: "muted small", id: "pro-badge" })]),
 					el("div", { cls: "help", id: "pro-status" }),
+					el("div", { cls: "help pro-warning", id: "pro-warning", role: "status" }),
 					el("div", { cls: "quota-bar", id: "pro-quota", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100" }, [el("span", { id: "pro-quota-fill" })])
 				]));
 			}
@@ -838,6 +840,9 @@ footer { text-align: center; color: var(--faint); font-size: 12px; padding: 18px
 		}
 		$("pro-box").style.display = "";
 		st.textContent = proInfo.status || "";
+		var warn = $("pro-warning");
+		warn.textContent = proInfo.warning || "";
+		warn.style.display = proInfo.warning ? "" : "none";
 		var name = proInfo.planName || "Etkin";
 		badge.textContent = proInfo.subscribed ? (proInfo.active ? name + " · kullanılıyor" : name) : "Abone değil";
 		var bar = $("pro-quota");

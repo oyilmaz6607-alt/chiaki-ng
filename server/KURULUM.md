@@ -1,6 +1,7 @@
 # AltyazıTR abonelik sunucusu — Kurulum rehberi
 
-Bu rehber, aylık **AltyazıTR aboneliği** (Standart / Pro / Premium paketleri + 3 gün ücretsiz deneme) için
+Bu rehber, **AltyazıTR aboneliği** (Standart / Pro / Premium paketleri, aylık veya yıllık, + 3 gün ücretsiz deneme
+ve tek seferlik +2.000 satır ek paketi) için
 çeviri sunucusunu kurmanızı adım adım anlatır.
 Kod bilmeniz gerekmez; yalnızca birkaç web sitesinde tıklayıp kopyala-yapıştır yapacaksınız.
 Toplam süre: yaklaşık 45–60 dakika (Google'ın izinleri etkinleştirmesi bazen birkaç saat sürer).
@@ -123,7 +124,7 @@ kullanılabilir. Kullanıcılarınızın altyazılarını korumak için anahtar 
    **API adresi** yazar, ör. `https://altyazitr-api.altyazitr.workers.dev`.
 4. **Test:** Tarayıcıda adresin sonuna `/v1/health` ekleyip açın:
    `https://altyazitr-api.altyazitr.workers.dev/v1/health`
-   Ekranda `{"ok":true,"version":"1.1"}` görüyorsanız sunucu çalışıyor.
+   Ekranda `{"ok":true,"version":"1.2"}` görüyorsanız sunucu çalışıyor.
 
 Kırmızı ✗ çıkarsa: iş akışına tıklayın, kırmızı adımı açın; en alttaki Türkçe hata mesajı genelde
 hangi gizli değerin eksik/yanlış olduğunu söyler. Değeri düzeltip **Run workflow**'u tekrarlayın.
@@ -155,7 +156,7 @@ kaydedince sunucu otomatik yeniden yayınlanır):
 | Ayar | Varsayılan | Anlamı |
 |---|---|---|
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Çeviri modeli (en hızlı/ucuz Flash-Lite önerilir) |
-| `PLAN_LIMITS` | `{"standart":4500,"pro":11000,"premium":27000,"deneme":1500}` | Paket (Play temel plan kimliği) başına aylık yapay zekâ çeviri satırı; `deneme` = 3 günlük deneme boyunca toplam. Önbellekten gelenler sayılmaz. Listeyi **tam** yazın: listede olmayan temel plan "Satın alma doğrulanamadı" alır. |
+| `PLAN_LIMITS` | `{"standart":4500,"pro":10000,"premium":24000,"deneme":1500}` | Paket (Play temel plan kimliği) başına aylık yapay zekâ çeviri satırı; `deneme` = 3 günlük deneme boyunca toplam. Önbellekten gelenler ve cihaz içi çevrilen kısa satırlar sayılmaz. Yıllık planlar (`pro-yillik` …) aynı paketin aylık sınırını kullanır. Listeyi **tam** yazın: listede olmayan temel plan "Satın alma doğrulanamadı" alır. |
 | `MAX_TEXT_CHARS` | `600` | Tek satır için en fazla karakter (600'den büyük olamaz) |
 
 Cloudflare panelinden değiştirdiğiniz değişkenler bir sonraki yayınlamada bu dosyadakilerle ezilir;
@@ -166,6 +167,28 @@ kalıcı değişikliği dosyada yapın.
 asıl sınırı sunucu uygular. Fiyatlar kodda değil, Play Console'dadır (`store/MAGAZA_VE_YAYIN.md`).
 
 ---
+
+## Google Play: ek süre (grace period) ve hesap askıya alma (account hold)
+
+Kartı reddedilen abonenin aboneliğinin hemen bitmemesi için (istem dışı ayrılmayı azaltır, kullanıcı bir şey yapmadan
+ödemesi düzelince devam eder) her temel planda bu iki ayarın **açık** olduğundan emin olun. Google'a göre ikisi de yeni
+otomatik yenilenen temel planlarda varsayılan olarak açıktır ve hesap bekletme süresi "60 gün − ek süre" olarak hesaplanır
+(https://developer.android.com/google/play/billing/lifecycle/subscriptions); **kısaltmayın**, kısaltmak kurtarılan abonelikleri azaltır.
+
+1. Play Console → **Para kazanma → Ürünler → Abonelikler** → `altyazitr_abonelik` → bir temel plana tıklayın
+   (`standart`, `pro`, `premium`, `standart-yillik`, `pro-yillik`, `premium-yillik` — her biri için ayrı ayrı).
+2. **Temel planı düzenle** → "Yenileme / Hesap bekletme ve ek süre" (*Grace period and account hold*) bölümü:
+   - **Ek süre (Grace period):** açık; varsayılan süreyi koruyun (Play Console'da seçenek varsa yıllık planlarda en uzun değeri seçin).
+     Ek süre boyunca abonelik etkin sayılır (sunucu `SUBSCRIPTION_STATE_IN_GRACE_PERIOD` durumunu kabul eder); kullanıcı
+     çeviriyi kesintisiz kullanır, Play ödeme yöntemini düzeltmesini ister.
+   - **Hesap bekletme (Account hold):** açık, varsayılan (otomatik hesaplanan) süre. Bekletmede abonelik
+     etkin değildir (`SUBSCRIPTION_STATE_ON_HOLD` → sunucu "abonelik etkin değil" der, uygulama cihaz içi çeviriye döner);
+     ödeme düzelince abonelik kendiliğinden geri gelir, yeniden satın alma gerekmez.
+3. **Kaydet** (planı yeniden etkinleştirmeniz gerekmez). Play bu süreçte kullanıcıya kendisi e-posta/bildirim gönderir,
+   ödemeyi otomatik yeniden dener; kullanıcı Play Store → Ödemeler ve abonelikler'den kartını değiştirebilir. Kod gerekmez.
+4. "Dynamic Grace Period" gibi Play'in otomatik kurtarma özellikleri hesabınızda açıksa açık bırakın (toplam kurtarma süresini değiştirmez).
+
+Not: Sunucu doğrulama sonucunu 10 dakika önbelleğe alır; ödeme düzelince çeviri en geç ~1 saat içinde (oturum yenilenince) yapay zekâya döner.
 
 ## Maliyet
 
@@ -179,40 +202,66 @@ Bir satırın maliyeti:
 
 ```
 maliyet ≈ (giriş_jetonu × 0,30 + çıkış_jetonu × 2,50) / 1.000.000  $
-giriş  ≈ 140 (sistem talimatı) + 30–150 (önceki 0–4 satır bağlamı) + 15 (satır)  ≈ 200–300 jeton
-çıkış  ≈ 20–40 (Türkçe çeviri) + birkaç "minimal" düşünme jetonu              ≈ 30–50 jeton
 ```
 
-| | Satır başı | 1.000 satır | 10.000 satır |
+| | Önce (v1.1) | Şimdi (v1.2) | Neden |
 |---|---|---|---|
-| Tipik (~270 giriş + ~45 çıkış) | ~0,0002 $ | ~0,19 $ | ~1,9 $ |
+| Sistem talimatı | ~140 | ~140 | değişmedi |
+| Önceki satırlar (bağlam) | 30–150 (her satırda, ≤ 4 çift × 600 kar.) | ortalama ~15–20 (yalnızca ~%30–40 satırda, ≤ 2 çift × 160 kar.) | bağlam yalnızca zamir/gönderme olan ≥ 6 kelimelik satırlarda |
+| Satırın kendisi | ~15 | ~20 | kısa satırlar artık gelmiyor, kalanlar ortalamada daha uzun |
+| **Giriş toplamı** | ~200–300 (≈ 270) | **≈ 180** | |
+| Çıkış (çeviri + "minimal" düşünme) | ~45 | ~45 | çeviri boyu aynı; `maxOutputTokens` = clamp(2×kelime+24, 32, 160) yalnızca kaçak/uzun yanıtı keser |
+| **Sayılan satır başına** | **~0,00020 $** | **~0,00017 $** (−%15) | |
 
-- Sunucu önbelleği aynı satırı ikinci kez **ücretsiz** verir (menüler, "Press X", sık replikler).
-- Diyaloğu yoğun bir oyunda saatte ~450 altyazı satırı varsayılır (paket kartlarındaki "saat" değerleri buradan).
+Tek sayılan satırın maliyeti az düşer (çıkış jetonları baskın); asıl kazanç **sunucuya hiç gitmeyen** satırlardadır:
 
-### Paket başına maliyet ve kâr (aylık, abone başına)
+- **Kısa satırlar cihaz içi:** ≤ 3 kelime / ≤ 18 karakter / büyük harfli arayüz yazıları / sayılar ("Yes.", "Get down!",
+  "PRESS X TO CONTINUE", "120 / 250"). Tipik bir oyunda altyazı + arayüz satırlarının ~%25–35'i. Bunlar sunucuya gitmez,
+  kotadan düşmez (aynı kalitede: 1–3 kelimede cihaz içi çeviri yapay zekâya denktir).
+- **Daha akıllı sunucu önbelleği:** büyük/küçük harf, kıvrık/düz tırnak, "…"/"...", boşluk, sondaki nokta/virgül, OCR kırıntısı
+  ("|", "_" …) farkları ve konuşmacı etiketi ("JOEL:") aynı anahtara düşer; bağlam yalnızca gerçekten kullanıldığında anahtara girer;
+  önbellek 90 gün tutulur; her Worker isolate'inde en sıcak 2.000 satır bellekte. Tahmini ek isabet: **+5–10 puan**.
 
-Varsayımlar: satır başı **0,0002 $** (yukarıdaki tipik değer), **USD/TRY 49,69**, fiyattan **%20 KDV** ve
-**%15 Google Play komisyonu** düşülür → net gelir = fiyat ÷ 1,20 × 0,85. "En kötü durum" = abone paketinin
-tamamını önbelleğe hiç denk gelmeden kullanır; "%40 önbellek" = satırların %40'ı sunucu önbelleğinden gelir
-(Gemini'ye gitmez). Fiyatlar öneridir, Play Console'da girilir.
+**Saatlik tahmin** (diyaloğu yoğun oyun, saatte ~450 satır, önbellek yok):
+önce 450 × 0,00020 = **0,090 $/saat** → şimdi ~%30 kısa satır cihaz içi: 315 × 0,00017 = **~0,054 $/saat (≈ −%40)**.
+%40 önbellekle: önce ~0,054 $/saat → şimdi ~0,030 $/saat (önbellek oranı da artınca daha az).
+Bunlar tahmindir; gerçek oranı aşağıdaki sayaçlardan ölçün.
 
-| Paket | Önerilen fiyat | Net gelir | Satır sınırı | Gemini, en kötü durum | Kâr, en kötü durum | Gemini, %40 önbellek | Kâr, %40 önbellek |
-|---|---|---|---|---|---|---|---|
-| Deneme (3 gün) | ücretsiz | 0 | 1.500 (toplam) | 0,30 $ (14,91 TL) | −0,30 $ | 0,18 $ (8,94 TL) | −0,18 $ |
-| Standart (~10 saat) | 79,99 TL/ay | 56,66 TL = 1,14 $ | 4.500 | 0,90 $ (44,72 TL) | **+0,24 $ (%21)** | 0,54 $ (26,83 TL) | +0,60 $ (%53) |
-| Pro (~25 saat) | 149,99 TL/ay | 106,24 TL = 2,14 $ | 11.000 | 2,20 $ (109,32 TL) | **−0,06 $ (−%3)** | 1,32 $ (65,59 TL) | +0,82 $ (%38) |
-| Premium (~60 saat) | 299,99 TL/ay | 212,49 TL = 4,28 $ | 27.000 | 5,40 $ (268,33 TL) | **−1,12 $ (−%26)** | 3,24 $ (161,00 TL) | +1,04 $ (%24) |
+**Önbellek ölçümü:** Sunucu her gün için yalnızca sayıları tutar (metin yok): KV anahtarı `st:YYYY-MM-DD` =
+`{"mem": isolate belleği isabeti, "kv": KV isabeti, "miss": Gemini'ye giden}`. Okumak için Cloudflare → **Workers & Pages →
+KV → altyazitr-api-ALTYAZI_KV → `st:2026-10-25`** (veya `npx wrangler kv key get --binding ALTYAZI_KV st:2026-10-25`).
+Önbellek oranı = (mem + kv) / (mem + kv + miss). Kısa satırlar uygulamada kaldığı için bu sayılara hiç girmez.
 
-Başabaş fiyatı (en kötü durum / %40 önbellek): Standart 63,14 / 37,88 TL · Pro 154,33 / 92,60 TL ·
-Premium 378,81 / 227,29 TL. Sabit gider: Cloudflare Workers Paid 5 $/ay (aşağıda), tablo dışıdır.
+### Paket başına maliyet ve kâr (abone başına, aylık)
+
+Varsayımlar: **USD/TRY 49,69**; fiyattan **%20 KDV** ve **%15 Google Play komisyonu** düşülür → net = fiyat ÷ 1,20 × 0,85
+(yıllıkta net ÷ 12 = aylık karşılığı). "En kötü durum" = abone her ay paketinin **tamamını** önbelleğe hiç denk gelmeden kullanır;
+iki satır maliyetiyle hesaplandı: **0,00020 $** (eski, temkinli) ve **0,00017 $** (v1.2 tahmini). "%40 önbellek" = 0,00017 $ ile,
+satırların %40'ı sunucu önbelleğinden. Fiyatlar öneridir, Play Console'da girilir. Yıllık planlarda da satır hakkı **aylıktır**.
+
+| Paket | Fiyat | Net / ay | Satır / ay | Gemini, en kötü (0,00020 $) | Kâr | Gemini, en kötü (0,00017 $) | Kâr | %40 önbellek | Kâr |
+|---|---|---|---|---|---|---|---|---|---|
+| Deneme (3 gün) | ücretsiz | 0 | 1.500 (toplam) | 0,30 $ | −0,30 $ | 0,26 $ | −0,26 $ | 0,15 $ | −0,15 $ |
+| Standart (~10 saat) | 79,99 TL/ay | 56,66 TL = 1,14 $ | 4.500 | 0,90 $ | +0,24 $ (**%21**) | 0,77 $ | +0,38 $ (**%33**) | 0,46 $ | %60 |
+| Pro (~22 saat) | 149,99 TL/ay | 106,24 TL = 2,14 $ | 10.000 | 2,00 $ | +0,14 $ (%6) | 1,70 $ | +0,44 $ (**%20**) | 1,02 $ | %52 |
+| Premium (~50 saat) | 349,99 TL/ay | 247,91 TL = 4,99 $ | 24.000 | 4,80 $ | +0,19 $ (%4) | 4,08 $ | +0,91 $ (**%18**) | 2,45 $ | %51 |
+| Standart yıllık | 799,99 TL/yıl | 47,22 TL = 0,95 $ | 4.500 | 0,90 $ | +0,05 $ (%5) | 0,77 $ | +0,19 $ (**%20**) | 0,46 $ | %52 |
+| Pro yıllık | 1.499,99 TL/yıl | 88,54 TL = 1,78 $ | 10.000 | 2,00 $ | −0,22 $ (−%12) | 1,70 $ | +0,08 $ (%5) | 1,02 $ | %43 |
+| Premium yıllık | 3.499,99 TL/yıl | 206,60 TL = 4,16 $ | 24.000 | 4,80 $ | −0,64 $ (−%15) | 4,08 $ | +0,08 $ (%2) | 2,45 $ | %41 |
+| Ek paket (+2.000 satır) | 39,99 TL | 28,32 TL = 0,57 $ | 2.000 | 0,40 $ | +0,17 $ (**%30**) | 0,34 $ | +0,23 $ (**%40**) | 0,20 $ | %64 |
 
 Yorum:
-- Paketini sonuna kadar kullanan Pro ve özellikle Premium abonesi, önbellek yardımı olmadan zarar ettirir.
-  Gerçekte çoğu abone sınırın altında kalır ve önbellek oranı %10–40 arasıdır; yine de riski azaltmak için
-  Premium'u 349,99–379,99 TL'ye çekmeyi veya `PLAN_LIMITS` içinde `premium` değerini ~20.000'e indirmeyi düşünün.
-- Deneme, yeni abone başına en çok ~0,30 $ maliyettir (Play denemeyi yalnızca hiç abone olmamış hesaplara verir).
-- Kur veya Gemini fiyatı değişirse tabloyu aynı formülle yeniden hesaplayın.
+- **Aylık paketlerin hepsi en kötü durumda bile kârlı** (eski 0,00020 $ ile de artık zarar yok; v1.1'de Pro −%3, Premium −%26 idi).
+  %15+ kâr hedefi, v1.2 satır maliyeti tahminiyle (0,00017 $) üç aylık pakette de tutar; eski temkinli maliyetle Pro %6, Premium %4'te kalır.
+  Gerçek satır maliyetini sayaçlar + Google Cloud faturasıyla bir ay ölçün; 0,00019 $'ın üstündeyse `PLAN_LIMITS`'te Pro'yu 9.000,
+  Premium'u 21.000'e çekmek %15'i eski maliyette de garanti eder.
+- **Yıllık planlar (≈ 10 × aylık, "2 ay bedava")** en kötü durumda zayıftır: Standart yıllık %20, Pro/Premium yıllık ancak başabaş.
+  Gerçekte bir abonenin 12 ay boyunca her ay sınırın tamamını kullanması çok nadirdir ve önbellekle (%40) hepsi %40+ kârlıdır.
+  En kötü durumda da %15 isteniyorsa önerilen yıllık fiyatlar: **Standart 799,99 TL** (değişmez), **Pro 1.699,99 TL**, **Premium 4.049,99 TL**
+  (uygulama kazancı Play fiyatlarından kendisi hesaplar: bu fiyatlarla "%5 / %3 indirim" yazar). Karar sizin; tablo aynı formülle yeniden hesaplanabilir.
+- **Ek paket** her durumda kârlıdır ve yalnızca hak dolunca / %80'den sonra abonelik ekranında önerilir.
+- Deneme, yeni abone başına en çok ~0,26–0,30 $ maliyettir (Play denemeyi yalnızca hiç abone olmamış hesaplara verir).
+- Sabit gider: Cloudflare Workers Paid 5 $/ay (aşağıda), tablo dışıdır. Kur veya Gemini fiyatı değişirse aynı formülle yeniden hesaplayın.
 
 ### Cloudflare Workers + KV
 
@@ -226,7 +275,8 @@ Yorum:
 (Kaynak: https://developers.cloudflare.com/workers/platform/pricing/ ,
 https://developers.cloudflare.com/kv/platform/limits/)
 
-Her **yeni** (önbellekte olmayan) çeviri ~1–2 KV yazması yapar (önbellek kaydı + kota sayacı).
+Her **yeni** (önbellekte olmayan) çeviri ~1–2 KV yazması yapar (önbellek kaydı + kota sayacı); önbellek sayaçları
+isolate başına dakikada en fazla 1 yazma, ek paket alımı 2 yazmadır.
 Bu yüzden ücretsiz plan günde yalnızca **~500–1.000 yeni satıra** yeter — yani test için yeterli,
 ama ilk gerçek abonelerle birlikte **Workers Paid (5 $/ay)** planına geçin:
 Cloudflare → **Workers & Pages → Plans** → **Workers Paid**. Ücretli planda ayda ~500.000+ yeni satır
@@ -236,7 +286,8 @@ kaydedilemez.
 
 ### Google Play Developer API
 
-Abonelik doğrulaması ücretsizdir (sonuçlar 10 dakika önbelleğe alınır; oturum başına en fazla 1 sorgu).
+Abonelik ve ek paket doğrulaması ücretsizdir (abonelik sonuçları 10 dakika önbelleğe alınır; oturum başına en fazla 1 sorgu;
+ek paket jetonu başına 1 sorgu). Ek paket için D adımındaki izinler yeterlidir (`purchases.products.get`).
 
 ---
 
@@ -254,4 +305,10 @@ Abonelik doğrulaması ücretsizdir (sonuçlar 10 dakika önbelleğe alınır; o
 - **Deneme tespiti:** Google'ın `offerPhase.freeTrial` alanına bakılır; bu alan yoksa teklif kimliği
   `deneme-3gun` ve abonelik başlangıcı son 3 gün içindeyse deneme sayılır. Deneme bitince (en geç 1 saat
   içinde, oturum yenilenince) paketin aylık sınırı başlar; deneme satırları ilk aya sayılmaz.
+- **Ek paket:** aynı satın alma jetonu yalnızca bir kez kredilenir (`tu:<jeton özeti>` kaydı, 400 gün). Kredi, satın alındığı
+  kota ayının sonuna kadar geçerlidir ve paket değişikliğinde aynı kovada kalır. KV sonunda tutarlı olduğu için iki farklı
+  Cloudflare merkezinden aynı anda gelen iki istek çok nadiren aynı paketi iki kez sayabilir (kullanıcı lehine; önemsiz).
+  Abonelik bittikten sonra tüketilmemiş ek paket kredilendirilemez; Play Console → Siparişler'den iade edin.
+- **Kısa satırlar:** uygulama ≤ 3 kelime / ≤ 18 karakter satırları cihaz içi çevirir; bu satırlar sunucuya hiç gelmez,
+  dolayısıyla sayaçlarda ve kotada görünmez.
 - Sunucu altyazı metnini **asla** kayda (log) yazmaz; yalnızca yol, durum kodu, süre ve hata kodu.
