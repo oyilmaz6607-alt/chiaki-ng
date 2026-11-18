@@ -172,6 +172,11 @@ class CaptionService : Service()
 	/** Süren Pro isteği: yeni altyazı gelince iptal edilir (eski cümle için akış boşuna sürmesin). */
 	private var proJob: Job? = null
 	private val tracker = SubtitleTracker()
+
+	/** Sesli dublaj: TTS, son okunan İngilizce satır ve zamanı (tekrar okumayı önlemek için). */
+	private var dubbing: DubbingSpeaker? = null
+	private var lastSpokenEnglish: String? = null
+	private var lastSpokenAt = 0L
 	private val refine = RefineState()
 	/** Gemini'ye bağlam olarak gönderilen son altyazı çiftleri (ana iş parçacığı). */
 	private val contextPairs = ArrayDeque<SubtitlePair>()
@@ -379,6 +384,8 @@ class CaptionService : Service()
 		recognizer.close()
 		translator.close()
 		removeOverlays()
+		dubbing?.shutdown()
+		dubbing = null
 		super.onDestroy()
 	}
 
@@ -1091,8 +1098,29 @@ class CaptionService : Service()
 		// Bağlama yalnızca son çeviri girer (Pro'nun yarım metni veya Gemini/Pro yerine taslak girmez).
 		val isFinalResult = refine.isFinal(source) || (!TranslationSettings.isRemote(engine) && source != RefineState.Source.PRO_PARTIAL)
 		if(isFinalResult)
+		{
 			rememberContext(english, turkish)
+			maybeSpeak(english, turkish)
+		}
 		return true
+	}
+
+	/** Sesli dublaj: yeni bir altyazı satırı bir kez okunur; aynı satırın yenilenmesi veya büyümesi tekrar okutmaz. */
+	private fun maybeSpeak(english: String, turkish: String)
+	{
+		if(!prefs.dubbingEnabled)
+			return
+		val now = SystemClock.uptimeMillis()
+		val prev = lastSpokenEnglish
+		if(prev != null && now - lastSpokenAt < DubbingSettings.REPEAT_WINDOW_MS &&
+			(SubtitleFilter.isSameSubtitle(english, prev) || english.contains(prev) || prev.contains(english)))
+			return
+		lastSpokenEnglish = english
+		lastSpokenAt = now
+		val line = DubbingParser.parse(english, turkish)
+		val profile = VoiceMap.profileFor(prefs.dubbingSpeakers, line.speaker, prefs.dubbingDefaultProfile)
+		val speaker = dubbing ?: DubbingSpeaker(this).also { dubbing = it }
+		speaker.speak(line.text, profile)
 	}
 
 	/** Gemini'ye bağlam: son [MAX_CONTEXT_PAIRS] altyazı. Daktilo büyümesi önceki kaydın yerine geçer. */

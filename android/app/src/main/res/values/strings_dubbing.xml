@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dubbing_category_title">Sesli dublaj</string>
+    <string name="dubbing_enabled_title">Çeviriyi sesli oku</string>
+    <string name="dubbing_enabled_summary">Türkçe altyazı cihazın kendi Türkçe sesiyle okunur. Ücretsiz, internet gerektirmez.</string>
+    <string name="dubbing_default_title">Varsayılan ses</string>
+    <string name="dubbing_speakers_title">Karakter sesleri</string>
+    <string name="dubbing_speakers_summary">Konuşmacı adı → ses. Örnek: AVCI=erkek-yasli;KIZ=kadin-cocuk. Altyazıda ad yazmıyorsa varsayılan ses kullanılır.</string>
+    <string-array name="dubbing_profile_entries">
+        <item>Erkek, yetişkin</item>
+        <item>Kadın, yetişkin</item>
+        <item>Erkek, yaşlı</item>
+        <item>Kadın, yaşlı</item>
+        <item>Erkek, çocuk</item>
+        <item>Kadın, çocuk</item>
+    </string-array>
+    <string-array name="dubbing_profile_values">
+        <item>erkek-yetiskin</item>
+        <item>kadin-yetiskin</item>
+        <item>erkek-yasli</item>
+        <item>kadin-yasli</item>
+        <item>erkek-cocuk</item>
+        <item>kadin-cocuk</item>
+    </string-array>
+</resources>

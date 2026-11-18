@@ -196,6 +196,21 @@ class Preferences(context: Context)
 	val translationDraftFirst: Boolean
 		get() = sharedPreferences.getBoolean(translationDraftFirstKey, TranslationSettings.DEFAULT_DRAFT_FIRST)
 
+	/** Sesli dublaj (cihaz içi TTS) açık mı? */
+	val dubbingEnabled: Boolean
+		get() = sharedPreferences.getBoolean(com.metallic.chiaki.subtitle.DubbingSettings.KEY_ENABLED, false)
+
+	/** Konuşmacısı bilinmeyen veya eşlemesi olmayan satırların sesi. */
+	val dubbingDefaultProfile: com.metallic.chiaki.subtitle.VoiceProfile
+		get() = com.metallic.chiaki.subtitle.VoiceProfile.parse(
+			sharedPreferences.getString(com.metallic.chiaki.subtitle.DubbingSettings.KEY_DEFAULT_PROFILE, null))
+			?: com.metallic.chiaki.subtitle.VoiceProfile.parse(com.metallic.chiaki.subtitle.DubbingSettings.DEFAULT_PROFILE)!!
+
+	/** Konuşmacı adı → ses profili eşlemesi ("AVCI=erkek-yetiskin;KIZ=kadin-cocuk"). */
+	val dubbingSpeakers: Map<String, com.metallic.chiaki.subtitle.VoiceProfile>
+		get() = com.metallic.chiaki.subtitle.VoiceMap.parse(
+			sharedPreferences.getString(com.metallic.chiaki.subtitle.DubbingSettings.KEY_SPEAKERS, null))
+
 	/** Bu anahtarlardan biri değişince altyazı servisi çeviri ayarlarını yeniden okur. */
 	val translationKeys: Set<String> get() = setOf(translationEngineKey, geminiApiKeyKey, geminiModelKey, translationDraftFirstKey)
 

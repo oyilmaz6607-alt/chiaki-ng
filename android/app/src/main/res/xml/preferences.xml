@@ -85,6 +85,29 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        app:key="category_dubbing"
+        app:title="@string/dubbing_category_title">
+        <SwitchPreference
+            app:key="subtitle_dubbing_enabled"
+            app:title="@string/dubbing_enabled_title"
+            app:summary="@string/dubbing_enabled_summary"
+            app:defaultValue="false" />
+        <ListPreference
+            app:key="subtitle_dubbing_default_profile"
+            app:title="@string/dubbing_default_title"
+            app:entries="@array/dubbing_profile_entries"
+            app:entryValues="@array/dubbing_profile_values"
+            app:defaultValue="erkek-yetiskin"
+            app:useSimpleSummaryProvider="true"
+            app:dependency="subtitle_dubbing_enabled" />
+        <EditTextPreference
+            app:key="subtitle_dubbing_speakers"
+            app:title="@string/dubbing_speakers_title"
+            app:summary="@string/dubbing_speakers_summary"
+            app:dependency="subtitle_dubbing_enabled" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
         app:key="category_general"
         app:title="@string/preferences_category_title_general">
         <Preference
