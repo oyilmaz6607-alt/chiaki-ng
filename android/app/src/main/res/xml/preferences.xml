@@ -34,7 +34,7 @@
             app:summary="@string/preferences_subtitle_speed_summary"
             app:min="150"
             android:max="1500"
-            app:defaultValue="300"
+            app:defaultValue="150"
             app:showSeekBarValue="true"
             app:seekBarIncrement="50"
             app:dependency="@string/preferences_subtitle_enabled_key" />

@@ -93,7 +93,7 @@ class Preferences(context: Context)
 		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_area_key), 35).coerceIn(10, 100)
 
 	val subtitleIntervalMs
-		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_speed_key), 300).coerceIn(150, 1500)
+		get() = sharedPreferences.getInt(resources.getString(R.string.preferences_subtitle_speed_key), 150).coerceIn(150, 1500)
 
 	val subtitleDebugInfo
 		get() = sharedPreferences.getBoolean(resources.getString(R.string.preferences_subtitle_debug_key), false)
