@@ -5,8 +5,19 @@
     <string name="dubbing_enabled_summary">Türkçe altyazı cihazın kendi Türkçe sesiyle okunur. Ücretsiz, internet gerektirmez.</string>
     <string name="dubbing_default_title">Varsayılan ses</string>
     <string name="dubbing_speakers_title">Karakter sesleri</string>
-    <string name="dubbing_speakers_summary">Konuşmacı adı → ses. Örnek: AVCI=erkek-yasli;KIZ=kadin-cocuk. Altyazıda ad yazmıyorsa varsayılan ses kullanılır.</string>
+    <string name="dubbing_speakers_summary">Konuşmacı adı → ses. Örnek: AVCI=erkek-yasli;KIZ=kadin-cocuk (konum ayrıca Ses yönü ile ayarlanır). Altyazıda ad yazmıyorsa varsayılan ses kullanılır.</string>
     <string name="game_profile_title">Oyun profili</string>
+    <string name="dubbing_pan_title">Ses yönü (karakter ekranda nerede?)</string>
+    <string-array name="dubbing_pan_entries">
+        <item>Sol</item>
+        <item>Orta</item>
+        <item>Sağ</item>
+    </string-array>
+    <string-array name="dubbing_pan_values">
+        <item>sol</item>
+        <item>orta</item>
+        <item>sag</item>
+    </string-array>
     <string name="dubbing_fast_title">Hızlı dublaj (taslağı hemen oku)</string>
     <string name="dubbing_fast_summary">Açıkken ilk cihaz içi çeviri hemen okunur, daha az gecikir ama bazı satırlar daha az doğru olabilir.</string>
     <string-array name="game_profile_entries">

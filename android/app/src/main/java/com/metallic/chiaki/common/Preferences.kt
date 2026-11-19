@@ -206,10 +206,16 @@ class Preferences(context: Context)
 			sharedPreferences.getString(com.metallic.chiaki.subtitle.DubbingSettings.KEY_DEFAULT_PROFILE, null))
 			?: com.metallic.chiaki.subtitle.VoiceProfile.parse(com.metallic.chiaki.subtitle.DubbingSettings.DEFAULT_PROFILE)!!
 
-	/** Konuşmacı adı → ses ve konum eşlemesi ("AVCI=erkek-yetiskin@sol;KIZ=kadin-cocuk"). */
-	val dubbingSpeakers: Map<String, com.metallic.chiaki.subtitle.SpeakerVoice>
+	/** Konuşmacı adı → ses profili eşlemesi ("AVCI=erkek-yetiskin;KIZ=kadin-cocuk"). */
+	val dubbingSpeakers: Map<String, com.metallic.chiaki.subtitle.VoiceProfile>
 		get() = com.metallic.chiaki.subtitle.VoiceMap.parse(
 			sharedPreferences.getString(com.metallic.chiaki.subtitle.DubbingSettings.KEY_SPEAKERS, null))
+
+	/** Sesin çalındığı yön (canlı ayar): sol / orta / sağ. Karakter ekranda nerede duruyorsa o yön seçilir. */
+	val dubbingPan: com.metallic.chiaki.subtitle.Pan
+		get() = com.metallic.chiaki.subtitle.Pan.parse(
+			sharedPreferences.getString(com.metallic.chiaki.subtitle.DubbingSettings.KEY_PAN, null))
+			?: com.metallic.chiaki.subtitle.Pan.CENTER
 
 	/** Oyun profili: "genel" ya da "gta6" (GTA 6'da taslak çeviri hemen okunur). */
 	val gameProfile: String

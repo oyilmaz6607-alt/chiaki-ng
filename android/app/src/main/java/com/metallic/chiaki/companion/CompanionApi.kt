@@ -356,6 +356,7 @@ class CompanionApi(context: Context, private val clientSeen: () -> Unit): Compan
 		CompanionSettings.KEY_LINE_SPACING -> R.string.preferences_caption_line_spacing_title
 		CompanionSettings.KEY_CAPTURE_PERCENT -> R.string.preferences_subtitle_area_title
 		CompanionSettings.KEY_INTERVAL_MS -> R.string.preferences_subtitle_speed_title
+		CompanionSettings.KEY_DUBBING_PAN -> R.string.dubbing_pan_title
 		CompanionSettings.KEY_TRANSLATION_ENGINE -> R.string.preferences_translation_engine_title
 		CompanionSettings.KEY_GEMINI_API_KEY -> R.string.preferences_gemini_api_key_title
 		CompanionSettings.KEY_GEMINI_MODEL -> R.string.preferences_gemini_model_title

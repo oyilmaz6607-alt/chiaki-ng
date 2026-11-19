@@ -67,10 +67,10 @@ class DubbingTest
 		val map = VoiceMap.parse("avci=erkek-yasli; KIZ=kadin-cocuk;bozuk;X=yanlis")
 		assertEquals(2, map.size)
 		val def = VoiceProfile(false, VoiceProfile.Age.ADULT)
-		assertEquals(VoiceProfile(false, VoiceProfile.Age.ELDER), VoiceMap.voiceFor(map, "AVCI", SpeakerVoice(def)).profile)
-		assertEquals(VoiceProfile(true, VoiceProfile.Age.CHILD), VoiceMap.voiceFor(map, "kız", SpeakerVoice(def)).profile)
-		assertEquals(SpeakerVoice(def), VoiceMap.voiceFor(map, "BILINMEYEN", SpeakerVoice(def)))
-		assertEquals(SpeakerVoice(def), VoiceMap.voiceFor(map, null, SpeakerVoice(def)))
+		assertEquals(VoiceProfile(false, VoiceProfile.Age.ELDER), VoiceMap.profileFor(map, "AVCI", def))
+		assertEquals(VoiceProfile(true, VoiceProfile.Age.CHILD), VoiceMap.profileFor(map, "kız", def))
+		assertEquals(def, VoiceMap.profileFor(map, "BILINMEYEN", def))
+		assertEquals(def, VoiceMap.profileFor(map, null, def))
 	}
 
 	@Test
@@ -83,13 +83,16 @@ class DubbingTest
 	}
 
 	@Test
-	fun panIsParsedAndNormalized()
+	fun panIsIndependentOfVoiceMapping()
 	{
-		val map = VoiceMap.parse("avci=erkek-yasli@sol;kiz=kadin-cocuk@sag;x=erkek-yetiskin@yanlis")
-		assertEquals(Pan.LEFT, map["AVCI"]!!.pan)
-		assertEquals(Pan.RIGHT, map["KIZ"]!!.pan)
-		assertEquals(Pan.CENTER, map["X"]!!.pan)
+		assertEquals(Pan.LEFT, Pan.parse("sol"))
+		assertEquals(Pan.RIGHT, Pan.parse(" SAG "))
+		assertEquals(Pan.CENTER, Pan.parse("orta"))
+		assertNull(Pan.parse("yukari"))
 		assertEquals(-1f, Pan.LEFT.value, 0f)
-		assertEquals("AVCI=erkek-yasli@sol;KIZ=kadin-cocuk@sag;X=erkek-yetiskin", VoiceMap.normalize("avci=erkek-yasli@sol;kiz=kadin-cocuk@sag;x=erkek-yetiskin@yanlis"))
+		assertEquals(1f, Pan.RIGHT.value, 0f)
+		// "@sol" eski biçimi konum taşımaz: yalnızca profil alınır, konum etkilenmez
+		val map = VoiceMap.parse("avci=erkek-yasli@sol")
+		assertEquals(VoiceProfile(false, VoiceProfile.Age.ELDER), map["AVCI"])
 	}
 }

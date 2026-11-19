@@ -15,6 +15,7 @@ object DubbingSettings
 	const val KEY_SPEAKERS = "subtitle_dubbing_speakers"
 	const val KEY_FAST = "subtitle_dubbing_fast"
 	const val KEY_GAME = "subtitle_game_profile"
+	const val KEY_PAN = "subtitle_dubbing_pan"
 	const val DEFAULT_PROFILE = "erkek-yetiskin"
 	const val GAME_GENERAL = "genel"
 	const val GAME_GTA6 = "gta6"
@@ -72,9 +73,6 @@ enum class Pan(val key: String, val value: Float)
 	}
 }
 
-/** Bir konuşmacının sesi: profil + konum. */
-data class SpeakerVoice(val profile: VoiceProfile, val pan: Pan = Pan.CENTER)
-
 /** Altyazı satırından konuşmacı adını ve okunacak metni çıkarır. */
 object DubbingParser
 {
@@ -99,37 +97,30 @@ object DubbingParser
 	fun normalizeName(name: String): String = name.trim().uppercase(Locale.ROOT)
 }
 
-/** Konuşmacı → ses eşlemesi. Biçim: "AVCI=erkek-yetiskin@sol;KIZ=kadin-cocuk" (@konum isteğe bağlı). */
+/** Konuşmacı → ses profili eşlemesi. Biçim: "AVCI=erkek-yetiskin;KIZ=kadin-cocuk". Konum bunun dışındadır. */
 object VoiceMap
 {
-	fun parse(raw: String?): Map<String, SpeakerVoice>
+	fun parse(raw: String?): Map<String, VoiceProfile>
 	{
-		val out = LinkedHashMap<String, SpeakerVoice>()
+		val out = LinkedHashMap<String, VoiceProfile>()
 		raw?.split(';')?.forEach { entry ->
 			val i = entry.indexOf('=')
 			if(i <= 0)
 				return@forEach
 			val name = DubbingParser.normalizeName(entry.substring(0, i))
-			val value = entry.substring(i + 1)
-			val at = value.indexOf('@')
-			val profile = VoiceProfile.parse(if(at < 0) value else value.substring(0, at))
-			val pan = if(at < 0) Pan.CENTER else Pan.parse(value.substring(at + 1)) ?: Pan.CENTER
+			// Eski "@sol" biçimi kayıtlarda kalmış olabilir: konum artık ayrı bir ayar, yalnızca profil alınır.
+			val profile = VoiceProfile.parse(entry.substring(i + 1).substringBefore('@'))
 			if(name.isNotEmpty() && profile != null)
-				out[name] = SpeakerVoice(profile, pan)
+				out[name] = profile
 		}
 		return out
 	}
 
 	/** Konuşmacı eşlemede yoksa varsayılan ses; konuşmacı hiç yoksa da varsayılan. */
-	fun voiceFor(map: Map<String, SpeakerVoice>, speaker: String?, default: SpeakerVoice): SpeakerVoice =
+	fun profileFor(map: Map<String, VoiceProfile>, speaker: String?, default: VoiceProfile): VoiceProfile =
 		speaker?.let { map[DubbingParser.normalizeName(it)] } ?: default
 
 	/** Ayar metnini normalize eder (boşlukları temizler, geçersiz girdileri atar). */
-	fun normalize(raw: String): String
-	{
-		val map = parse(raw)
-		return map.entries.joinToString(";") { e ->
-			"${e.key}=${e.value.profile.key}" + if(e.value.pan == Pan.CENTER) "" else "@${e.value.pan.key}"
-		}
-	}
+	fun normalize(raw: String): String =
+		parse(raw).entries.joinToString(";") { "${it.key}=${it.value.key}" }
 }

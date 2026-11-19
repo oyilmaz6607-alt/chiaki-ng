@@ -51,6 +51,7 @@ object CompanionSettings
 	const val KEY_MAX_WIDTH = "subtitle_caption_max_width"
 	const val KEY_CAPTURE_PERCENT = "subtitle_capture_percent"
 	const val KEY_INTERVAL_MS = "subtitle_interval_ms"
+	const val KEY_DUBBING_PAN = "subtitle_dubbing_pan"
 	const val KEY_TRANSLATION_ENGINE = TranslationSettings.KEY_ENGINE
 	const val KEY_GEMINI_API_KEY = TranslationSettings.KEY_GEMINI_API_KEY
 	const val KEY_GEMINI_MODEL = TranslationSettings.KEY_GEMINI_MODEL
@@ -81,6 +82,7 @@ object CompanionSettings
 		Spec.Choice(KEY_LINE_SPACING, LINE_SPACINGS, "1.1"),
 		Spec.IntRange(KEY_CAPTURE_PERCENT, 10, 100, 35, 5),
 		Spec.IntRange(KEY_INTERVAL_MS, 150, 1500, 300, 50),
+		Spec.Choice(KEY_DUBBING_PAN, listOf("sol", "orta", "sag"), "orta"),
 		Spec.Choice(KEY_TRANSLATION_ENGINE, TranslationSettings.ENGINES, TranslationSettings.ENGINE_MLKIT),
 		Spec.Secret(KEY_GEMINI_API_KEY, TranslationSettings.API_KEY_MAX_LENGTH) { TranslationSettings.normalizeApiKey(it) },
 		Spec.Choice(KEY_GEMINI_MODEL, TranslationSettings.MODELS, TranslationSettings.DEFAULT_MODEL),
@@ -94,7 +96,7 @@ object CompanionSettings
 
 	/** Sıfırlamada silinecek görünüm anahtarları (tarama alanı/aralığı hariç). */
 	val STYLE_KEYS: List<String> = SPECS.map { it.key }
-		.filter { it != KEY_CAPTURE_PERCENT && it != KEY_INTERVAL_MS && it !in TRANSLATION_KEYS }
+		.filter { it != KEY_CAPTURE_PERCENT && it != KEY_INTERVAL_MS && it != KEY_DUBBING_PAN && it !in TRANSLATION_KEYS }
 
 	fun spec(key: String): Spec? = byKey[key]
 

@@ -99,6 +99,14 @@
             app:entryValues="@array/game_profile_values"
             app:defaultValue="genel"
             app:useSimpleSummaryProvider="true" />
+        <ListPreference
+            app:key="subtitle_dubbing_pan"
+            app:title="@string/dubbing_pan_title"
+            app:entries="@array/dubbing_pan_entries"
+            app:entryValues="@array/dubbing_pan_values"
+            app:defaultValue="orta"
+            app:useSimpleSummaryProvider="true"
+            app:dependency="subtitle_dubbing_enabled" />
         <SwitchPreference
             app:key="subtitle_dubbing_fast"
             app:title="@string/dubbing_fast_title"

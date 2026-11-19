@@ -1118,9 +1118,9 @@ class CaptionService : Service()
 		lastSpokenEnglish = english
 		lastSpokenAt = now
 		val line = DubbingParser.parse(english, turkish)
-		val voice = VoiceMap.voiceFor(prefs.dubbingSpeakers, line.speaker, SpeakerVoice(prefs.dubbingDefaultProfile))
+		val profile = VoiceMap.profileFor(prefs.dubbingSpeakers, line.speaker, prefs.dubbingDefaultProfile)
 		val speaker = dubbing ?: DubbingSpeaker(this).also { dubbing = it }
-		speaker.speak(line.text, voice.profile, voice.pan)
+		speaker.speak(line.text, profile, prefs.dubbingPan)
 	}
 
 	/** Gemini'ye bağlam: son [MAX_CONTEXT_PAIRS] altyazı. Daktilo büyümesi önceki kaydın yerine geçer. */
