@@ -206,10 +206,21 @@ class Preferences(context: Context)
 			sharedPreferences.getString(com.metallic.chiaki.subtitle.DubbingSettings.KEY_DEFAULT_PROFILE, null))
 			?: com.metallic.chiaki.subtitle.VoiceProfile.parse(com.metallic.chiaki.subtitle.DubbingSettings.DEFAULT_PROFILE)!!
 
-	/** Konuşmacı adı → ses profili eşlemesi ("AVCI=erkek-yetiskin;KIZ=kadin-cocuk"). */
-	val dubbingSpeakers: Map<String, com.metallic.chiaki.subtitle.VoiceProfile>
+	/** Konuşmacı adı → ses ve konum eşlemesi ("AVCI=erkek-yetiskin@sol;KIZ=kadin-cocuk"). */
+	val dubbingSpeakers: Map<String, com.metallic.chiaki.subtitle.SpeakerVoice>
 		get() = com.metallic.chiaki.subtitle.VoiceMap.parse(
 			sharedPreferences.getString(com.metallic.chiaki.subtitle.DubbingSettings.KEY_SPEAKERS, null))
+
+	/** Oyun profili: "genel" ya da "gta6" (GTA 6'da taslak çeviri hemen okunur). */
+	val gameProfile: String
+		get() = sharedPreferences.getString(com.metallic.chiaki.subtitle.DubbingSettings.KEY_GAME, null)
+			?.takeIf { it == com.metallic.chiaki.subtitle.DubbingSettings.GAME_GTA6 }
+			?: com.metallic.chiaki.subtitle.DubbingSettings.GAME_GENERAL
+
+	/** Taslak (cihaz içi) çeviriyi, iyileştirilmiş çeviri gelmeden okut: daha az gecikme, daha düşük kalite. */
+	val dubbingSpeaksDraft: Boolean
+		get() = sharedPreferences.getBoolean(com.metallic.chiaki.subtitle.DubbingSettings.KEY_FAST, false) ||
+			gameProfile == com.metallic.chiaki.subtitle.DubbingSettings.GAME_GTA6
 
 	/** Bu anahtarlardan biri değişince altyazı servisi çeviri ayarlarını yeniden okur. */
 	val translationKeys: Set<String> get() = setOf(translationEngineKey, geminiApiKeyKey, geminiModelKey, translationDraftFirstKey)

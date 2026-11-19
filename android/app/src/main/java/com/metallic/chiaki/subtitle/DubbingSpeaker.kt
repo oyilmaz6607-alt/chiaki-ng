@@ -4,6 +4,7 @@ package com.metallic.chiaki.subtitle
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
 import java.util.Locale
@@ -54,8 +55,8 @@ class DubbingSpeaker(context: Context)
 		ready = true
 	}
 
-	/** Satırı verilen profille okur. Motor hazır değilse sessizce atlanır. */
-	fun speak(text: String, profile: VoiceProfile)
+	/** Satırı verilen profil ve konumla okur (sol/orta/sağ). Motor hazır değilse sessizce atlanır. */
+	fun speak(text: String, profile: VoiceProfile, pan: Pan)
 	{
 		val t = tts ?: return
 		if(!ready || text.isBlank())
@@ -63,7 +64,11 @@ class DubbingSpeaker(context: Context)
 		t.setPitch(profile.pitch)
 		t.setSpeechRate(profile.rate)
 		voiceFor(profile)?.let { runCatching { t.voice = it } }
-		t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "d" + counter.incrementAndGet())
+		val params = Bundle().apply {
+			putFloat(TextToSpeech.Engine.KEY_PARAM_PAN, pan.value)
+			putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1f)
+		}
+		t.speak(text, TextToSpeech.QUEUE_FLUSH, params, "d" + counter.incrementAndGet())
 	}
 
 	/** Erkek → ilk Türkçe ses; kadın → ikinci Türkçe ses (yoksa ilk sesin perdesi kadın profilinde yükselir). */

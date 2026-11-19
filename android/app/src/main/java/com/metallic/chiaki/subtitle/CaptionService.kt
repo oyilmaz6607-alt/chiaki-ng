@@ -1098,10 +1098,10 @@ class CaptionService : Service()
 		// Bağlama yalnızca son çeviri girer (Pro'nun yarım metni veya Gemini/Pro yerine taslak girmez).
 		val isFinalResult = refine.isFinal(source) || (!TranslationSettings.isRemote(engine) && source != RefineState.Source.PRO_PARTIAL)
 		if(isFinalResult)
-		{
 			rememberContext(english, turkish)
+		// Hızlı dublajda ilk taslak hemen okunur; aynı satır sonra tekrar okunmaz (maybeSpeak eşler).
+		if(isFinalResult || prefs.dubbingSpeaksDraft)
 			maybeSpeak(english, turkish)
-		}
 		return true
 	}
 
@@ -1118,9 +1118,9 @@ class CaptionService : Service()
 		lastSpokenEnglish = english
 		lastSpokenAt = now
 		val line = DubbingParser.parse(english, turkish)
-		val profile = VoiceMap.profileFor(prefs.dubbingSpeakers, line.speaker, prefs.dubbingDefaultProfile)
+		val voice = VoiceMap.voiceFor(prefs.dubbingSpeakers, line.speaker, SpeakerVoice(prefs.dubbingDefaultProfile))
 		val speaker = dubbing ?: DubbingSpeaker(this).also { dubbing = it }
-		speaker.speak(line.text, profile)
+		speaker.speak(line.text, voice.profile, voice.pan)
 	}
 
 	/** Gemini'ye bağlam: son [MAX_CONTEXT_PAIRS] altyazı. Daktilo büyümesi önceki kaydın yerine geçer. */

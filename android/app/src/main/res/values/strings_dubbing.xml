@@ -6,6 +6,17 @@
     <string name="dubbing_default_title">Varsayılan ses</string>
     <string name="dubbing_speakers_title">Karakter sesleri</string>
     <string name="dubbing_speakers_summary">Konuşmacı adı → ses. Örnek: AVCI=erkek-yasli;KIZ=kadin-cocuk. Altyazıda ad yazmıyorsa varsayılan ses kullanılır.</string>
+    <string name="game_profile_title">Oyun profili</string>
+    <string name="dubbing_fast_title">Hızlı dublaj (taslağı hemen oku)</string>
+    <string name="dubbing_fast_summary">Açıkken ilk cihaz içi çeviri hemen okunur, daha az gecikir ama bazı satırlar daha az doğru olabilir.</string>
+    <string-array name="game_profile_entries">
+        <item>Genel</item>
+        <item>GTA 6 (hızlı dublaj açık)</item>
+    </string-array>
+    <string-array name="game_profile_values">
+        <item>genel</item>
+        <item>gta6</item>
+    </string-array>
     <string-array name="dubbing_profile_entries">
         <item>Erkek, yetişkin</item>
         <item>Kadın, yetişkin</item>

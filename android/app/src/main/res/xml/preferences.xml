@@ -93,6 +93,19 @@
             app:summary="@string/dubbing_enabled_summary"
             app:defaultValue="false" />
         <ListPreference
+            app:key="subtitle_game_profile"
+            app:title="@string/game_profile_title"
+            app:entries="@array/game_profile_entries"
+            app:entryValues="@array/game_profile_values"
+            app:defaultValue="genel"
+            app:useSimpleSummaryProvider="true" />
+        <SwitchPreference
+            app:key="subtitle_dubbing_fast"
+            app:title="@string/dubbing_fast_title"
+            app:summary="@string/dubbing_fast_summary"
+            app:defaultValue="false"
+            app:dependency="subtitle_dubbing_enabled" />
+        <ListPreference
             app:key="subtitle_dubbing_default_profile"
             app:title="@string/dubbing_default_title"
             app:entries="@array/dubbing_profile_entries"
