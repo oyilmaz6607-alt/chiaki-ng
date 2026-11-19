@@ -904,7 +904,7 @@ class CaptionService : Service()
 			}
 			mlkitMs = SystemClock.uptimeMillis() - started
 			cache.put(TranslationSettings.ENGINE_MLKIT, english, turkish)
-			if(display(gen, turkish, RefineState.Source.MLKIT, frameAt, english) && isFallback)
+			if(display(gen, turkish, RefineState.Source.MLKIT, frameAt, english, speakNow = isFallback) && isFallback)
 				shownEngine = if(engine == TranslationSettings.ENGINE_PRO) "cihaz içi (abonelik yerine)" else "cihaz içi (Gemini yerine)"
 		}
 	}
@@ -1053,7 +1053,7 @@ class CaptionService : Service()
 		val cached = cache.get(TranslationSettings.ENGINE_MLKIT, english)
 		when
 		{
-			cached != null -> display(gen, cached, RefineState.Source.CACHE_MLKIT, frameAt, english)
+			cached != null -> display(gen, cached, RefineState.Source.CACHE_MLKIT, frameAt, english, speakNow = true)
 			// Taslak zaten yolda (önce hızlı çeviri açık): o gelince gösterilir.
 			draftFirst && modelReady -> {}
 			modelReady -> launchMlKit(gen, english, frameAt, isFallback = true)
@@ -1074,7 +1074,7 @@ class CaptionService : Service()
 	}
 
 	/** Sonuç hâlâ güncel altyazıya aitse gösterir; true = gösterildi. */
-	private fun display(gen: Int, turkish: String, source: RefineState.Source, frameAt: Long, english: String): Boolean
+	private fun display(gen: Int, turkish: String, source: RefineState.Source, frameAt: Long, english: String, speakNow: Boolean = false): Boolean
 	{
 		val c = currentCandidate ?: return false
 		val wasEmpty = refine.shown == null
@@ -1100,7 +1100,8 @@ class CaptionService : Service()
 		if(isFinalResult)
 			rememberContext(english, turkish)
 		// Hızlı dublajda ilk taslak hemen okunur; aynı satır sonra tekrar okunmaz (maybeSpeak eşler).
-		if(isFinalResult || prefs.dubbingSpeaksDraft)
+		// Uzak motor yoksa/başarısızsa (yedek çeviri) ya da hızlı dublaj açıksa taslak da hemen okunur.
+		if(isFinalResult || speakNow || prefs.dubbingSpeaksDraft || remoteEngine() == null)
 			maybeSpeak(english, turkish)
 		return true
 	}
@@ -1113,7 +1114,7 @@ class CaptionService : Service()
 		val now = SystemClock.uptimeMillis()
 		val prev = lastSpokenEnglish
 		if(prev != null && now - lastSpokenAt < DubbingSettings.REPEAT_WINDOW_MS &&
-			(SubtitleFilter.isSameSubtitle(english, prev) || english.contains(prev) || prev.contains(english)))
+			(SubtitleFilter.isSameSubtitle(english, prev) || (prev.length >= 12 && (english.contains(prev) || prev.contains(english)))))
 			return
 		lastSpokenEnglish = english
 		lastSpokenAt = now
