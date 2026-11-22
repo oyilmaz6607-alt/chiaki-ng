@@ -98,6 +98,7 @@ class GeminiRequestTest
 		assertEquals("AIzaSyA1234567890abcdef", TranslationSettings.normalizeApiKey(" AIzaSyA1234567890abcdef "))
 		assertNull(TranslationSettings.normalizeApiKey("AIza…cdef"))
 		assertNull(TranslationSettings.normalizeApiKey("short"))
+		assertEquals("AQ.TestAnahtar_1234567890", TranslationSettings.normalizeApiKey("AQ.TestAnahtar_1234567890"))
 		assertNull(TranslationSettings.normalizeApiKey("AIza Sy\nA1234567890"))
 	}
 

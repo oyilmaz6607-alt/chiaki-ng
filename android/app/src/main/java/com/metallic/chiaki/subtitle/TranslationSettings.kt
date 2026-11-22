@@ -73,7 +73,8 @@ object TranslationSettings
 			return ""
 		if(k.length > API_KEY_MAX_LENGTH || k.length < 10)
 			return null
-		if(!k.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '-' || it == '_' })
+		// Yeni AI Studio anahtarları "AQ." ile başlayıp nokta içerebilir; anahtar yalnızca başlık değerine girer.
+		if(!k.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '-' || it == '_' || it == '.' })
 			return null
 		return k
 	}
