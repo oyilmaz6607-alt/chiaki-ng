@@ -868,7 +868,8 @@ class CaptionService : Service()
 			captionView?.visibility = View.GONE
 			placedBox = null
 		}
-		if(draft == null && wantDraft && modelReady)
+		// Uzak motor çalışırken cihaz içi taslak yalnızca hızlı dublajda başlar: aksi halde OCR ve Gemini ile işlemciyi paylaşır.
+		if(draft == null && wantDraft && modelReady && (!useRemote || prefs.dubbingSpeaksDraft))
 			launchMlKit(gen, c.text, frameAt, isFallback = shortOnDevice)
 		if(!useRemote)
 		{
@@ -1055,7 +1056,7 @@ class CaptionService : Service()
 		{
 			cached != null -> display(gen, cached, RefineState.Source.CACHE_MLKIT, frameAt, english, speakNow = true)
 			// Taslak zaten yolda (önce hızlı çeviri açık): o gelince gösterilir.
-			draftFirst && modelReady -> {}
+			draftFirst && modelReady && prefs.dubbingSpeaksDraft -> {}
 			modelReady -> launchMlKit(gen, english, frameAt, isFallback = true)
 			else -> onTranslationFailed(gen)
 		}
